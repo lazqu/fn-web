@@ -1774,27 +1774,22 @@ elif st.session_state.menu == "💼 내 투자 관리":
             
             st.divider()
             
-            # 보유 종목 상세 내역 테이블 (단일 행 선택 활성화)
+            # 보유 종목 상세 내역 테이블 (단일 행 선택 활성화 - 핵심 4개 칼럼만 노출)
             pf_display_df = pd.DataFrame(rows)
             event_pf = st.dataframe(
-                pf_display_df,
+                pf_display_df[['티커', '포지션', '현재 평가액 ($)', '수익률 (%)']],
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "평균 매수가 ($)": st.column_config.NumberColumn("평균 매수가", format="$%.2f"),
-                    "현재 주가 ($)": st.column_config.NumberColumn("현재 주가", format="$%.2f"),
-                    "투자 원금 ($)": st.column_config.NumberColumn("투자 원금", format="$%.2f"),
-                    "현재 평가액 ($)": st.column_config.NumberColumn("현재 평가액", format="$%.2f"),
-                    "수익률 (%)": st.column_config.NumberColumn("수익률 (%)", format="%+.2f%%"),
-                    "예상 연간 배당금 ($)": st.column_config.NumberColumn("예상 연간 배당금", format="$%.2f"),
-                    "배당수익률(평단 기준)": st.column_config.NumberColumn("배당수익률(평단)", format="%.2f%%")
+                    "현재 평가액 ($)": st.column_config.NumberColumn("현재 평가액", format="$%,.2f"),
+                    "수익률 (%)": st.column_config.NumberColumn("수익률", format="%+.2f%%")
                 },
                 selection_mode="single-row",
                 on_select="rerun",
                 key="pf_dataframe"
             )
             
-            # 선택된 자산에 대한 제어 패널
+            # 선택된 자산에 대한 제어 패널 및 상세 정보 카드
             selected_rows = event_pf.selection.rows
             if selected_rows:
                 selected_idx = selected_rows[0]
@@ -1806,9 +1801,38 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     sel_reason = str(sel_row['entry_reason']) if pd.notna(sel_row['entry_reason']) else ""
                     sel_pos = str(sel_row.get('position_type', 'LONG')).upper()
                     
-                    st.subheader(f"⚙️ 선택된 포지션 제어: {sel_ticker} ({sel_pos})")
-                    if sel_reason:
-                        st.info(f"💬 **진입 근거 (메모)**: {sel_reason}")
+                    # 상세 카드 연산용
+                    curr_price = close_prices.get(sel_ticker, 0.0)
+                    if curr_price == 0.0:
+                        curr_price = sel_price
+                    cost = sel_shares * sel_price
+                    
+                    if sel_pos == "SHORT":
+                        gain_loss = sel_shares * (sel_price - curr_price)
+                    else:
+                        gain_loss = sel_shares * (curr_price - sel_price)
+                    gain_loss_pct = (gain_loss / cost * 100) if cost > 0 else 0.0
+                    
+                    stock_info = stocks_df[stocks_df['symbol'] == sel_ticker]
+                    last_div = float(stock_info.iloc[0]['lastDividend']) if not stock_info.empty else 0.0
+                    annual_div_per_share = last_div * 4
+                    if sel_pos == "SHORT":
+                        annual_div = -sel_shares * annual_div_per_share
+                    else:
+                        annual_div = sel_shares * annual_div_per_share
+                    
+                    # UI 전문가 수준의 다단 구조 상세 정보 카드 렌더링
+                    st.write("")
+                    with st.container(border=True):
+                        st.markdown(f"### 💼 **{sel_ticker} 자산 상세 지표 ({sel_pos})**")
+                        col_d1, col_d2 = st.columns(2)
+                        with col_d1:
+                            st.markdown(f"**보유 수량**: `{sel_shares:,.1f}주`  \n**평균 매수가**: `${sel_price:,.2f}`  \n**현재 주가**: `${curr_price:,.2f}`")
+                        with col_d2:
+                            st.markdown(f"**투자 원금**: `${cost:,.2f}`  \n**평가 손익**: `${gain_loss:+,.2f} ({gain_loss_pct:+.2f}%)`  \n**예상 연간 배당금**: `${annual_div:,.2f}`")
+                        
+                        if sel_reason:
+                            st.info(f"💬 **진입 근거 (메모)**: {sel_reason}")
                 
                 c_act1, c_act2, c_act3 = st.columns(3)
                 with c_act1:
@@ -2144,13 +2168,14 @@ elif st.session_state.menu == "💼 내 투자 관리":
             )
             history_df['weight_sell_val'] = history_df['shares'] * history_df['sell_price']
             
-            # 2. 최초 진입일(created_at) 기준으로 포지션 요약 그룹화 (티커, 포지션, 최초진입일)
-            agg_df = history_df.groupby(['symbol', 'position_type', 'created_at']).agg(
+            # 2. 고유 식별자(position_id) 기준으로 포지션 요약 그룹화 (티커, 포지션, 포지션 ID)
+            agg_df = history_df.groupby(['symbol', 'position_type', 'position_id']).agg(
                 total_shares=('shares', 'sum'),
                 entry_price=('purchase_price', 'first'),
                 sum_weight_sell_val=('weight_sell_val', 'sum'),
                 total_profit=('profit', 'sum'),
-                final_exit_date=('trade_date', 'max')
+                final_exit_date=('trade_date', 'max'),
+                created_at=('created_at', 'first')
             ).reset_index()
             
             # 3. 가중 청산단가 및 총 수익률 연산
@@ -2197,7 +2222,8 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     '평균 청산가 ($)': exit_p,
                     '누적 실현손익 ($)': profit,
                     '수익률 (%)': profit_pct,
-                    'created_at': row['created_at']  # 조인용 보존
+                    'created_at': row['created_at'],  # 보존
+                    'position_id': row['position_id']  # 정밀 조인용 신설
                 })
                 
             hist_display_df = pd.DataFrame(rows_display)
@@ -2223,17 +2249,14 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     
             st.divider()
             
-            # 마스터 테이블 렌더링
+            # 마스터 테이블 렌더링 (핵심 4개 컬럼만 노출)
             event_th = st.dataframe(
-                hist_display_df[['결과', '티커', '포지션', '거래 기간 (보유일)', '총 수량', '진입 단가 ($)', '평균 청산가 ($)', '누적 실현손익 ($)', '수익률 (%)']],
+                hist_display_df[['티커', '포지션', '누적 실현손익 ($)', '수익률 (%)']],
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "진입 단가 ($)": st.column_config.NumberColumn("진입 단가", format="$%.2f"),
-                    "평균 청산가 ($)": st.column_config.NumberColumn("평균 청산가", format="$%.2f"),
                     "누적 실현손익 ($)": st.column_config.NumberColumn("실현 손익", format="$%.2f"),
-                    "수익률 (%)": st.column_config.NumberColumn("수익률 (%)", format="%+.2f%%"),
-                    "총 수량": st.column_config.NumberColumn("수량", format="%.1f")
+                    "수익률 (%)": st.column_config.NumberColumn("수익률 (%)", format="%+.2f%%")
                 },
                 selection_mode="single-row",
                 on_select="rerun",
@@ -2249,12 +2272,29 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     sel_ticker = sel_row['티커']
                     sel_created = sel_row['created_at']
                     sel_pos = sel_row['포지션']
+                    sel_pos_id = sel_row.get('position_id', '')
                     
-                    df_detail = history_df[
-                        (history_df['symbol'] == sel_ticker) &
-                        (history_df['position_type'] == sel_pos) &
-                        (history_df['created_at'] == sel_created)
-                    ].copy()
+                    # 상세 카드 노출용 메타데이터 획득
+                    sel_shares = sel_row['총 수량']
+                    sel_entry_p = sel_row['진입 단가 ($)']
+                    sel_exit_p = sel_row['평균 청산가 ($)']
+                    sel_date_range = sel_row['거래 기간 (보유일)']
+                    sel_profit = sel_row['누적 실현손익 ($)']
+                    sel_profit_pct = sel_row['수익률 (%)']
+                    
+                    # position_id 기반 정밀 조인 (position_id가 없는 구형 레코드 대응을 위한 Fallback 조건 포함)
+                    if sel_pos_id and str(sel_pos_id).strip():
+                        df_detail = history_df[
+                            (history_df['symbol'] == sel_ticker) &
+                            (history_df['position_type'] == sel_pos) &
+                            (history_df['position_id'] == sel_pos_id)
+                        ].copy()
+                    else:
+                        df_detail = history_df[
+                            (history_df['symbol'] == sel_ticker) &
+                            (history_df['position_type'] == sel_pos) &
+                            (history_df['created_at'] == sel_created)
+                        ].copy()
                     
                     st.subheader(f"🔍 포지션 분할 청산 상세 이력: {sel_ticker} ({sel_pos})")
                     
@@ -2270,27 +2310,42 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     else:
                         st.caption("ℹ️ 해당 거래의 상세 노션 투자 저널 페이지를 찾을 수 없습니다.")
                         
-                    st.write("")
+                    # 포지션 종합 요약 지표 카드 렌더링
+                    with st.container(border=True):
+                        st.markdown(f"📊 **{sel_ticker} 포지션 실현 성적 요약**")
+                        col_h1, col_h2 = st.columns(2)
+                        with col_h1:
+                            st.markdown(f"**거래 기간**: `{sel_date_range}`  \n**진입 단가**: `${sel_entry_p:,.2f}`  \n**평균 청산가**: `${sel_exit_p:,.2f}`")
+                        with col_h2:
+                            st.markdown(f"**총 청산 수량**: `{sel_shares:,.1f}주`  \n**누적 실현손익**: `${sel_profit:+,.2f}`  \n**최종 수익률**: `{sel_profit_pct:+.2f}%`")
+                            
+                    st.markdown("⛓️ **상세 체결 타임라인 (주문 DB 기록)**")
                     
                     for _, r in df_detail.sort_values(by='trade_date', ascending=True).iterrows():
                         d_shares = float(r['shares'])
                         d_p_price = float(r['purchase_price'])
                         d_s_price = float(r['sell_price'])
                         d_date = r['trade_date']
+                        d_exit_reason = r['exit_reason'] if pd.notna(r['exit_reason']) else ""
                         
                         if sel_pos == "SHORT":
                             d_profit = d_shares * (d_p_price - d_s_price)
                         else:
                             d_profit = d_shares * (d_s_price - d_p_price)
-                            
                         d_profit_pct = (d_profit / (d_shares * d_p_price) * 100) if d_p_price > 0 else 0.0
                         
-                        with st.expander(f"📅 {d_date} | 청산 {d_shares}주 | 손익 ${d_profit:+.2f} ({d_profit_pct:+.2f}%)", expanded=True):
+                        # 접혀 있을 때의 타이틀은 극도로 심플하게 팩트만 표시
+                        expander_title = f"📅 {d_date} | 청산 {d_shares:,.1f}주 (@${d_s_price:,.2f})"
+                        
+                        with st.expander(expander_title, expanded=False):
                             c1, c2 = st.columns(2)
                             with c1:
-                                st.markdown(f"**진입 평단가**: ${d_p_price:.2f}  \n**청산 단가**: ${d_s_price:.2f}")
+                                st.markdown(f"**진입 평단가**: `${d_p_price:,.2f}`  \n**청산 단가**: `${d_s_price:,.2f}`")
                             with c2:
-                                st.markdown(f"**실현 수량**: {d_shares}주  \n**실현 손익**: ${d_profit:+.2f} ({d_profit_pct:+.2f}%)")
+                                st.markdown(f"**실현 손익**: `{d_profit:+,.2f}`  \n**수익률 (%)**: `{d_profit_pct:+.2f}%`")
+                            
+                            if d_exit_reason:
+                                st.info(f"🏁 **청산 사유**: {d_exit_reason}")
             else:
                 st.info("💡 위의 표에서 청산 완료된 포지션 행을 클릭하시면, 하단에 상세 분할 매도 이력과 노션 투자 저널 바로가기 링크가 출력됩니다.")
 

@@ -31,13 +31,13 @@ try:
     # 1. portfolio 초기화
     ws_port = sh.worksheet("portfolio")
     ws_port.clear()
-    ws_port.append_row(["symbol", "shares", "purchase_price", "entry_reason", "position_type", "created_at"])
+    ws_port.append_row(["symbol", "shares", "purchase_price", "entry_reason", "position_type", "created_at", "position_id"])
     print("[OK] Google Sheets: portfolio 보유 잔고 리셋 완료.")
     
     # 2. trading_history 초기화
     ws_hist = sh.worksheet("trading_history")
     ws_hist.clear()
-    ws_hist.append_row(["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date", "created_at"])
+    ws_hist.append_row(["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date", "created_at", "position_id"])
     print("[OK] Google Sheets: trading_history 실현 성적 리셋 완료.")
 
     # 3. order_history 초기화
@@ -48,7 +48,7 @@ try:
         
     ws_ord = sh.worksheet("order_history")
     ws_ord.clear()
-    ws_ord.append_row(["symbol", "action_type", "shares", "price", "reason", "position_type", "trade_date"])
+    ws_ord.append_row(["symbol", "action_type", "shares", "price", "reason", "position_type", "trade_date", "position_id"])
     print("[OK] Google Sheets: order_history 주문 DB 리셋 완료.")
 except Exception as e:
     print(f"[FAIL] Google Sheets 초기화 중 오류: {e}")
