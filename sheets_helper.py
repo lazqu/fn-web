@@ -97,7 +97,8 @@ def init_sheets():
         "watchlist": ["symbol", "group_name", "created_at"],
         "portfolio": ["symbol", "shares", "purchase_price", "entry_reason", "position_type", "created_at"],
         "alerts": ["symbol", "target_price", "condition_type", "is_triggered", "created_at"],
-        "trading_history": ["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date"]
+        "trading_history": ["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date", "created_at"],
+        "order_history": ["symbol", "action_type", "shares", "price", "reason", "position_type", "trade_date"]
     }
 
     existing_sheets = [ws.title for ws in sh.worksheets()]
@@ -462,7 +463,7 @@ def set_alert_triggered(symbol, condition_type, is_triggered=True):
 # --- 6. 매매 기록 (trading_history) 관련 ---
 def get_trading_history():
     """청산 완료된 매매기록 목록을 DataFrame으로 조회합니다."""
-    expected_cols = ["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date"]
+    expected_cols = ["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date", "created_at"]
     if not sh:
         return pd.DataFrame(columns=expected_cols)
     ws = sh.worksheet("trading_history")
@@ -476,7 +477,7 @@ def get_trading_history():
 
 
 def liquidate_portfolio(symbol, sell_shares, sell_price, exit_reason=""):
-    """포트폴리오 자산을 일부 또는 전부 청산하고 매매기록(trading_history)으로 이관합니다."""
+    """포트폴리오 자산을 일부 또는 전부 청산하고 매매기록(trading_history)으로 이관하며 주문 원장에 기록하여 잔고를 재계산합니다."""
     if not sh:
         return False
 
@@ -494,21 +495,128 @@ def liquidate_portfolio(symbol, sell_shares, sell_price, exit_reason=""):
     current_shares = float(row["shares"])
     purchase_price = float(row["purchase_price"])
     entry_reason = str(row["entry_reason"]) if pd.notna(row["entry_reason"]) else ""
-    position_type = str(row["position_type"]) if ("position_type" in row and pd.notna(row["position_type"])) else "LONG"
+    position_type = str(row.get("position_type", "LONG")).strip().upper()
 
     if sell_shares > current_shares:
         sell_shares = current_shares
 
-    # 2. 매매기록에 저장
+    # 2. 매매기록(trading_history)에 저장
     ws_hist = sh.worksheet("trading_history")
     trade_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ws_hist.append_row([symbol, sell_shares, purchase_price, sell_price, entry_reason, exit_reason, position_type, trade_date])
+    created_at = str(row["created_at"]) if ("created_at" in row and pd.notna(row["created_at"])) else trade_date
+    ws_hist.append_row([symbol, sell_shares, purchase_price, sell_price, entry_reason, exit_reason, position_type, trade_date, created_at])
 
-    # 3. 포트폴리오 차감 또는 삭제
-    remaining_shares = current_shares - sell_shares
-    if remaining_shares <= 0.0001:
-        remove_from_portfolio(symbol)
+    # 3. 주문 원장(order_history)에 청산 주문 적재 (이를 통해 잔고가 자동 재계산됨)
+    # LONG 포지션의 청산 액션은 SELL, SHORT 포지션의 청산 액션은 BUY
+    action_type = "BUY" if position_type == "SHORT" else "SELL"
+    record_order(symbol, action_type, sell_shares, sell_price, exit_reason, position_type)
+
+    return True
+
+
+def recalculate_position(symbol, position_type):
+    """주문 내역(order_history)의 모든 건을 시간순으로 누적 롤업 가중평균하여 portfolio 및 notion 정보를 동기화 재계산합니다."""
+    if not sh:
+        return False
+
+    symbol = symbol.strip().upper()
+    position_type = position_type.strip().upper()
+
+    # 1. order_history 로딩
+    ws_ord = sh.worksheet("order_history")
+    df_ord = get_as_dataframe(ws_ord).dropna(subset=["symbol"])
+    df_ord["symbol"] = df_ord["symbol"].astype(str).str.strip().str.upper()
+    df_ord["position_type"] = df_ord["position_type"].fillna("LONG").astype(str).str.strip().str.upper()
+    df_ord["shares"] = pd.to_numeric(df_ord["shares"], errors="coerce").fillna(0.0)
+    df_ord["price"] = pd.to_numeric(df_ord["price"], errors="coerce").fillna(0.0)
+
+    # 해당 종목 및 포지션의 주문 필터링
+    df_match = df_ord[(df_ord["symbol"] == symbol) & (df_ord["position_type"] == position_type)].copy()
+    
+    # 시간 순(trade_date) 정렬
+    if not df_match.empty:
+        df_match = df_match.sort_values(by="trade_date", ascending=True)
+
+    shares = 0.0
+    purchase_price = 0.0
+    entry_reason = ""
+
+    # 포지션 구분(LONG/SHORT)에 따른 수량 증감 거래 성격 분류
+    up_action = "SELL" if position_type == "SHORT" else "BUY"
+    down_action = "BUY" if position_type == "SHORT" else "SELL"
+
+    for _, row in df_match.iterrows():
+        action = str(row["action_type"]).upper()
+        o_shares = float(row["shares"])
+        o_price = float(row["price"])
+        o_reason = str(row["reason"]) if pd.notna(row["reason"]) else ""
+
+        if action == up_action:
+            new_shares = shares + o_shares
+            if new_shares > 0:
+                purchase_price = ((shares * purchase_price) + (o_shares * o_price)) / new_shares
+            shares = new_shares
+            if not entry_reason and o_reason:
+                entry_reason = o_reason
+        elif action == down_action:
+            shares = max(0.0, shares - o_shares)
+            if shares <= 0.0001:
+                shares = 0.0
+                purchase_price = 0.0
+                entry_reason = ""
+
+    # 2. 결과에 따른 포트폴리오 업데이트
+    if shares > 0.0001:
+        save_portfolio(symbol, shares, purchase_price, entry_reason, position_type)
     else:
-        save_portfolio(symbol, remaining_shares, purchase_price, entry_reason, position_type)
+        remove_from_portfolio(symbol)
 
+    # 3. 노션 동기화
+    try:
+        import notion_helper as nh
+        page_id = nh.get_active_position(symbol)
+        if page_id:
+            if shares > 0.0001:
+                nh.update_position_properties(page_id, avg_price=purchase_price, shares=shares, status="진입중")
+            else:
+                nh.close_position_journal(page_id, return_rate=0.0, return_val=0.0, exit_reason="주문 취소에 따른 포지션 자동 전량 롤백 해제")
+    except Exception:
+        pass
+
+    return True
+
+
+def remove_order_by_row(symbol, position_type, row_num):
+    """order_history 시트에서 잘못 기입된 특정 행(row_num, 1-indexed)을 제거하고 포지션을 재연산합니다."""
+    if not sh:
+        return False
+
+    ws_ord = sh.worksheet("order_history")
+    
+    # gspread delete_rows는 1-indexed 행 번호 기준
+    ws_ord.delete_rows(int(row_num))
+    
+    # 잔고 재계산 실행
+    recalculate_position(symbol, position_type)
+    return True
+
+
+def record_order(symbol, action_type, shares, price, reason="", position_type="LONG"):
+    """주문 원장(order_history) 시트에 체결 이력을 기록합니다. 이후 해당 포지션을 즉시 자동 재연산합니다."""
+    if not sh:
+        return False
+    
+    symbol = symbol.strip().upper()
+    action_type = action_type.strip().upper()
+    shares = float(shares)
+    price = float(price)
+    reason = reason.strip() if reason else ""
+    position_type = position_type.strip().upper()
+    trade_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    ws = sh.worksheet("order_history")
+    ws.append_row([symbol, action_type, shares, price, reason, position_type, trade_date])
+    
+    # 백엔드가 즉시 해당 티커/포지션의 잔고를 자동 재연산
+    recalculate_position(symbol, position_type)
     return True
