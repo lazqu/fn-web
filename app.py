@@ -73,9 +73,10 @@ def get_alert_prices_cached(tickers_to_check):
 def render_order_history_panel(ticker, pos_type):
     try:
         # sheets_helper 내부의 sh.worksheet 호출
-        ws_ord = sh.sh.worksheet("order_history")
+        ws_ord = sh.get_sh().worksheet("order_history")
         df_ord = sh.get_as_dataframe(ws_ord)
     except Exception as e:
+        st.error(f"주문 내역 로드 실패: {e}")
         return
 
     if df_ord.empty:

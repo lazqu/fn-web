@@ -615,8 +615,9 @@ def recalculate_position(symbol, position_type):
                 nh.update_position_properties(page_id, avg_price=purchase_price, shares=shares, status="진입중")
             else:
                 nh.close_position_journal(page_id, return_rate=0.0, return_val=0.0, feedback="주문 취소에 따른 포지션 자동 전량 롤백 해제")
-    except Exception:
-        pass
+    except Exception as ne:
+        import streamlit as st
+        st.warning(f"재계산 중 노션 동기화 실패 (속성 또는 세션 오류): {ne}")
 
     return True
 

@@ -160,7 +160,10 @@ def add_order_to_journal(page_id, action_type, shares, price, reason):
     headers = get_notion_headers()
     
     now_str = datetime.datetime.now().strftime("%m/%d %H:%M")
-    action_text = "매수" if action_type.upper() == "LONG" or "BUY" in action_type.upper() else "매도"
+    if "CANCEL" in action_type.upper() or "REVERT" in action_type.upper():
+        action_text = "취소"
+    else:
+        action_text = "매수" if action_type.upper() == "LONG" or "BUY" in action_type.upper() else "매도"
     
     bullet_content = f"📅 {now_str}: [{action_text}] {shares}주 (@${price:,.2f})"
     reason_content = f"\n  └ 💡 근거: {reason}" if reason else "\n  └ 💡 근거: 미작성"
