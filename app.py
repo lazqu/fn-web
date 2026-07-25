@@ -2256,14 +2256,26 @@ elif st.session_state.menu == "💼 내 투자 관리":
                         (history_df['created_at'] == sel_created)
                     ].copy()
                     
-                    st.subheader(f"🔍 포지션 상세 복기 및 분할 매도 이력: {sel_ticker} ({sel_pos})")
+                    st.subheader(f"🔍 포지션 분할 청산 상세 이력: {sel_ticker} ({sel_pos})")
+                    
+                    # 노션 링크 조회 및 노출
+                    closed_page_id = nh.get_closed_position_page_id(sel_ticker, sel_created)
+                    if closed_page_id:
+                        notion_page_uuid = closed_page_id.replace("-", "")
+                        st.link_button(
+                            f"📓 {sel_ticker} ({sel_pos}) 노션 투자 저널 바로가기",
+                            f"https://notion.so/{notion_page_uuid}",
+                            use_container_width=True
+                        )
+                    else:
+                        st.caption("ℹ️ 해당 거래의 상세 노션 투자 저널 페이지를 찾을 수 없습니다.")
+                        
+                    st.write("")
                     
                     for _, r in df_detail.sort_values(by='trade_date', ascending=True).iterrows():
                         d_shares = float(r['shares'])
                         d_p_price = float(r['purchase_price'])
                         d_s_price = float(r['sell_price'])
-                        d_exit_reason = r['exit_reason'] if pd.notna(r['exit_reason']) else ""
-                        d_entry_reason = r['entry_reason'] if pd.notna(r['entry_reason']) else ""
                         d_date = r['trade_date']
                         
                         if sel_pos == "SHORT":
@@ -2277,13 +2289,9 @@ elif st.session_state.menu == "💼 내 투자 관리":
                             c1, c2 = st.columns(2)
                             with c1:
                                 st.markdown(f"**진입 평단가**: ${d_p_price:.2f}  \n**청산 단가**: ${d_s_price:.2f}")
-                                if d_entry_reason:
-                                    st.info(f"💡 **진입 근거**: {d_entry_reason}")
                             with c2:
-                                st.markdown(f"**실현손익**: ${d_profit:+.2f} ({d_profit_pct:+.2f}%)")
-                                if d_exit_reason:
-                                    st.warning(f"🏁 **청산 사유**: {d_exit_reason}")
+                                st.markdown(f"**실현 수량**: {d_shares}주  \n**실현 손익**: ${d_profit:+.2f} ({d_profit_pct:+.2f}%)")
             else:
-                st.info("💡 위의 표에서 청산 완료된 포지션 행을 클릭하시면, 하단에 상세 분할 매도 이력과 시점별 진입 근거/복기가 타임라인으로 출력됩니다.")
+                st.info("💡 위의 표에서 청산 완료된 포지션 행을 클릭하시면, 하단에 상세 분할 매도 이력과 노션 투자 저널 바로가기 링크가 출력됩니다.")
 
 

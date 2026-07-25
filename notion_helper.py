@@ -50,6 +50,45 @@ def get_active_position(ticker):
         st.warning(f"Notion 액티브 포지션 조회 실패: {e}")
         return None
 
+def get_closed_position_page_id(ticker, created_at_date):
+    """
+    포지션 DB에서 해당 티커와 최초 진입일(created_at_date, YYYY-MM-DD 형식)이 일치하는 페이지 ID를 찾아 반환합니다.
+    """
+    database_id = st.secrets["notion"]["database_id"]
+    url = f"https://api.notion.com/v1/databases/{database_id}/query"
+    headers = get_notion_headers()
+    
+    # created_at_date가 시각을 포함하는 문자열일 수 있으므로 YYYY-MM-DD 파트만 추출
+    date_str = str(created_at_date).split(" ")[0].strip()
+    
+    payload = {
+        "filter": {
+            "and": [
+                {
+                    "property": "티커",
+                    "rich_text": {
+                        "equals": ticker.strip().upper()
+                    }
+                },
+                {
+                    "property": "최초 진입일",
+                    "date": {
+                        "equals": date_str
+                    }
+                }
+            ]
+        }
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            results = response.json().get("results", [])
+            if results:
+                return results[0]["id"]
+        return None
+    except Exception:
+        return None
+
 def get_position_performance(page_id):
     """
     해당 매매 기록 페이지의 현재까지 누적된 '실현 손익', '실현 수익률' 및 '평균 매수 단가' 값을 읽어옵니다.
