@@ -24,6 +24,11 @@ def run_init_sheets():
 
 run_init_sheets()
 
+# 구글 시트 연결 실패 시 에러 명시적 노출
+if sh.connection_error:
+    st.error(sh.connection_error)
+
+
 # --- 1. 구글 시트 읽기 기능 캐싱 및 유틸리티 캐시 정의 ---
 @st.cache_data(ttl=300)
 def get_stocks_cached():
@@ -943,14 +948,16 @@ if st.session_state.menu == "📊 개별 종목 분석":
         else:
             st.caption("현재 미보유 상태입니다.")
 
-        with st.popover("💼 보유 자산 정보 수정 / 청산", width="stretch"):
-            tab_buy, tab_sell = st.tabs(["➕ 포지션 추가/수정", "🗑️ 포지션 청산 (매도)"])
+        with st.popover("💼 포지션 추가 매수 / 청산", width="stretch"):
+            tab_buy, tab_sell = st.tabs(["➕ 포지션 추가 매수", "🗑️ 포지션 청산 (매도)"])
             
             with tab_buy:
                 with st.form("pf_edit_form", clear_on_submit=False):
                     pos_in = st.selectbox("포지션 구분", ["LONG", "SHORT"], index=0 if p_pos_type == "LONG" else 1, key="quick_pf_pos")
-                    shares_in = st.number_input("보유 수량 (주)", min_value=0.0, value=p_shares, step=1.0, key="quick_pf_shares")
-                    price_in = st.number_input("평균 매수 단가 ($)", min_value=0.0, value=p_price if p_price > 0 else current_price, step=0.01, key="quick_pf_price")
+                    
+                    st.info(f"💡 현재 보유: {p_shares}주 (평단 ${p_price:.2f}) ➡️ 추가 매수 수량과 단가를 입력하시면 가중평균이 자동 연산됩니다.")
+                    shares_add = st.number_input("추가 매수 수량 (주)", min_value=0.0, value=0.0, step=1.0, key="quick_pf_shares_add")
+                    price_add = st.number_input("추가 매수 단가 ($)", min_value=0.0, value=current_price, step=0.01, key="quick_pf_price_add")
                     
                     st.markdown("**📊 전략 및 정성적 피드백 태그 (Notion 연동)**")
                     col_tag1, col_tag2 = st.columns(2)
@@ -960,30 +967,14 @@ if st.session_state.menu == "📊 개별 종목 분석":
                         emotion_in = st.multiselect("진입 심리 상태", ["차분함", "조급함", "FOMO", "복수매매", "확증편향", "탐욕"], default=["차분함"], key="quick_pf_emotion")
                     
                     reason_in = st.text_area("상세 진입 근거 및 메모", value=p_entry_reason, height=80, key="quick_pf_reason")
-                    pf_submit = st.form_submit_button("포지션 저장", width="stretch")
+                    pf_submit = st.form_submit_button("추가 매수 실행", width="stretch")
                     if pf_submit:
-                        # LONG의 추가매수는 BUY, SHORT의 추가매수는 SELL
-                        action_in = "SELL" if pos_in == "SHORT" else "BUY"
-                        
-                        if in_portfolio:
-                            if shares_in > p_shares:
-                                order_shares = shares_in - p_shares
-                                order_price = price_in
-                            elif shares_in < p_shares:
-                                # 수량 감소 (일부 청산/매도 대응)
-                                order_shares = p_shares - shares_in
-                                order_price = price_in
-                                action_in = "BUY" if pos_in == "SHORT" else "SELL"
-                            else:
-                                order_shares = 0.0
-                                order_price = price_in
-                        else:
-                            order_shares = shares_in
-                            order_price = price_in
-
-                        if order_shares > 0:
+                        if shares_add > 0:
+                            # LONG의 추가매수는 BUY, SHORT의 추가매수는 SELL
+                            action_in = "SELL" if pos_in == "SHORT" else "BUY"
+                            
                             # 1. 주문 원장(order_history)에 주문 기입 (백엔드 recalculate_position 자동 트리거)
-                            sh.record_order(ticker, action_in, order_shares, order_price, reason_in, pos_in)
+                            sh.record_order(ticker, action_in, shares_add, price_add, reason_in, pos_in)
                             
                             # 2. Notion 연동 (백엔드가 갱신한 최신 잔고를 동기화)
                             try:
@@ -995,15 +986,15 @@ if st.session_state.menu == "📊 개별 종목 분석":
                                     final_shares = float(p_row['shares'])
                                     final_price = float(p_row['purchase_price'])
                                 else:
-                                    final_shares = shares_in
-                                    final_price = price_in
+                                    final_shares = p_shares + shares_add
+                                    final_price = ((p_shares * p_price) + (shares_add * price_add)) / final_shares
                                 
                                 page_id = nh.get_active_position(ticker)
                                 if not page_id:
                                     page_id = nh.create_position_journal(ticker, final_price, reason_in)
                                 
                                 if page_id:
-                                    nh.add_order_to_journal(page_id, pos_in, order_shares, order_price, reason_in)
+                                    nh.add_order_to_journal(page_id, pos_in, shares_add, price_add, reason_in)
                                     nh.update_position_properties(
                                         page_id, avg_price=final_price, shares=final_shares, status="진입중",
                                         market_regime=market_regime, emotion=emotion_in
@@ -1012,40 +1003,11 @@ if st.session_state.menu == "📊 개별 종목 분석":
                                 st.warning(f"노션 저널 연동 실패: {ne}")
                                 
                             st.cache_data.clear()
-                            st.success("포트폴리오 정보가 정상 등록/수정되었습니다.")
+                            st.success("포지션 추가 매수가 정상 완료되었습니다.")
                             st.rerun()
                         else:
-                            if in_portfolio:
-                                # 수량 변경 없이 사유나 단가 등의 부가적 속성만 변경하려는 특수 케이스 대응
-                                try:
-                                    page_id = nh.get_active_position(ticker)
-                                    if page_id:
-                                        nh.update_position_properties(
-                                            page_id, avg_price=price_in, shares=shares_in, status="진입중",
-                                            market_regime=market_regime, emotion=emotion_in
-                                        )
-                                except Exception:
-                                    pass
-                                sh.save_portfolio(ticker, shares_in, price_in, reason_in, pos_in)
-                                st.cache_data.clear()
-                                st.success("포트폴리오 정보(메타데이터)가 정상 수정되었습니다.")
-                                st.rerun()
-                            else:
-                                st.info("신규 등록 시 수량을 0보다 크게 입력해 주세요.")
-                                
-                    if pf_submit and shares_in <= 0:
-                        if in_portfolio:
-                            # 노션 저널 청산 완료 처리 (수동 삭제 대응)
-                            try:
-                                page_id = nh.get_active_position(ticker)
-                                if page_id:
-                                    nh.close_position_journal(page_id, return_rate=0.0, return_val=0.0, feedback="사용자가 보유 자산 정보를 0으로 수정하여 포지션 강제 삭제함")
-                            except Exception as ne:
-                                pass
-                            sh.remove_from_portfolio(ticker)
-                            st.cache_data.clear()
-                            st.success("포트폴리오에서 삭제되었습니다.")
-                            st.rerun()
+                            st.warning("추가 매수 수량을 0보다 크게 입력해주세요.")
+                            st.stop()
                                 
             with tab_sell:
                 if in_portfolio:
@@ -1088,6 +1050,10 @@ if st.session_state.menu == "📊 개별 종목 분석":
                                   st.rerun()
                 else:
                     st.info("현재 보유 중인 포지션이 없어 청산할 수 없습니다.")
+
+        # 보유 중일 때 최근 체결 이력 취소 관리 패널 출력 (오기 정정용)
+        if in_portfolio:
+            render_order_history_panel(ticker, p_pos_type)
 
     if "active_edit_row" not in st.session_state:
         st.session_state.active_edit_row = None
@@ -1569,7 +1535,21 @@ div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-
                         pf_submit = st.form_submit_button("💼 포트폴리오 저장/수정", width="stretch")
                         if pf_submit:
                             if shares_in > 0:
-                                sh.save_portfolio(sel_ticker, shares_in, price_in)
+                                # 1. 주문 원장(order_history)에 주문 기입
+                                pos_type = p_pos_type
+                                if not in_portfolio:
+                                    # 신규 진입 시
+                                    action_in = "SELL" if pos_type == "SHORT" else "BUY"
+                                    sh.record_order(sel_ticker, action_in, shares_in, price_in, "대시보드 간편 등록", pos_type)
+                                else:
+                                    # 보유 자산 수량 조정 시
+                                    added = shares_in - p_shares
+                                    if added > 0:
+                                        action_in = "SELL" if pos_type == "SHORT" else "BUY"
+                                        sh.record_order(sel_ticker, action_in, added, price_in, "대시보드 수동 추가매수", pos_type)
+                                    elif added < 0:
+                                        action_in = "BUY" if pos_type == "SHORT" else "SELL"
+                                        sh.record_order(sel_ticker, action_in, abs(added), price_in, "대시보드 수동 일부청산", pos_type)
                                 
                                 # --- Notion 연동 ---
                                 try:
@@ -1579,12 +1559,25 @@ div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-
                                     
                                     if page_id:
                                         if not in_portfolio:
-                                            nh.add_order_to_journal(page_id, "LONG", shares_in, price_in, "대시보드 간편 등록")
-                                        elif shares_in > p_shares:
-                                            added_shares = shares_in - p_shares
-                                            nh.add_order_to_journal(page_id, "LONG", added_shares, price_in, "대시보드 추가매수")
+                                            nh.add_order_to_journal(page_id, pos_type, shares_in, price_in, "대시보드 간편 등록")
+                                        else:
+                                            added = shares_in - p_shares
+                                            if added > 0:
+                                                nh.add_order_to_journal(page_id, pos_type, added, price_in, "대시보드 추가매수")
+                                            elif added < 0:
+                                                nh.add_order_to_journal(page_id, pos_type, abs(added), price_in, "대시보드 일부청산")
                                         
-                                        nh.update_position_properties(page_id, avg_price=price_in, shares=shares_in, status="진입중")
+                                        # 최신 가중평균값 조회
+                                        portfolio_df = sh.get_portfolio()
+                                        match_rows = portfolio_df[portfolio_df['symbol'] == sel_ticker]
+                                        if not match_rows.empty:
+                                            final_shares = float(match_rows.iloc[0]['shares'])
+                                            final_price = float(match_rows.iloc[0]['purchase_price'])
+                                        else:
+                                            final_shares = shares_in
+                                            final_price = price_in
+                                            
+                                        nh.update_position_properties(page_id, avg_price=final_price, shares=final_shares, status="진입중")
                                 except Exception as ne:
                                     pass
                                       
@@ -1902,6 +1895,9 @@ elif st.session_state.menu == "💼 내 투자 관리":
                                     st.cache_data.clear()
                                     st.success("포지션 청산이 실행되었습니다.")
                                     st.rerun()
+                    
+                # 보유 중일 때 최근 체결 이력 취소 관리 패널 출력 (오기 정정용 - columns 블록 바깥으로 아웃덴트)
+                render_order_history_panel(sel_ticker, sel_pos)
             else:
                 st.info("💡 위의 포트폴리오 표에서 자산 행을 클릭하시면 즉시 상세 차트 분석 이동 및 추가 매수/청산 처리를 할 수 있는 제어 패널이 나타납니다.")
 
@@ -2016,7 +2012,9 @@ elif st.session_state.menu == "💼 내 투자 관리":
                             pf_add_submit = st.form_submit_button("포트폴리오에 자산 추가")
                             if pf_add_submit:
                                 if shares_in > 0:
-                                    sh.save_portfolio(sel_ticker, shares_in, price_in, reason_in, pos_in)
+                                    # 최초 매수 주문 적재 (SHORT 최초 진입은 SELL, LONG 최초 진입은 BUY)
+                                    action_in = "SELL" if pos_in == "SHORT" else "BUY"
+                                    sh.record_order(sel_ticker, action_in, shares_in, price_in, reason_in, pos_in)
                                     
                                     # --- Notion 연동 ---
                                     try:
@@ -2028,6 +2026,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
                                             nh.add_order_to_journal(page_id, pos_in, shares_in, price_in, reason_in)
                                             nh.update_position_properties(page_id, avg_price=price_in, shares=shares_in, status="진입중")
                                     except Exception as ne:
+                                        pass
                                         pass
                                         
                                     st.cache_data.clear()
@@ -2136,55 +2135,154 @@ elif st.session_state.menu == "💼 내 투자 관리":
         if history_df.empty:
             st.info("완료된 포지션 청산(매매) 기록이 아직 없습니다. 포트폴리오 탭이나 개별 종목 탭에서 포지션 청산을 실행해 주세요.")
         else:
-            # 청산 완료 실현손익 및 수익률 연산
-            rows_hist = []
-            total_profit = 0.0
-            for _, row in history_df.iterrows():
-                sym = row['symbol']
-                shares = float(row['shares'])
-                p_price = float(row['purchase_price'])
-                s_price = float(row['sell_price'])
-                p_type = str(row.get('position_type', 'LONG')).upper()
-                entry_reason = row['entry_reason'] if pd.notna(row['entry_reason']) else ""
-                exit_reason = row['exit_reason'] if pd.notna(row['exit_reason']) else ""
-                trade_date = row['trade_date']
-                
-                if p_type == "SHORT":
-                    profit = shares * (p_price - s_price)
-                else:
-                    profit = shares * (s_price - p_price)
+            # 1. 개별 거래의 실현 손익 및 가중 청산가를 위한 임시 컬럼 생성
+            history_df['profit'] = history_df.apply(
+                lambda r: float(r['shares']) * (float(r['purchase_price']) - float(r['sell_price'])) if str(r.get('position_type', 'LONG')).upper() == 'SHORT'
+                else float(r['shares']) * (float(r['sell_price']) - float(r['purchase_price'])),
+                axis=1
+            )
+            history_df['weight_sell_val'] = history_df['shares'] * history_df['sell_price']
+            
+            # 2. 최초 진입일(created_at) 기준으로 포지션 요약 그룹화 (티커, 포지션, 최초진입일)
+            agg_df = history_df.groupby(['symbol', 'position_type', 'created_at']).agg(
+                total_shares=('shares', 'sum'),
+                entry_price=('purchase_price', 'first'),
+                sum_weight_sell_val=('weight_sell_val', 'sum'),
+                total_profit=('profit', 'sum'),
+                final_exit_date=('trade_date', 'max')
+            ).reset_index()
+            
+            # 3. 가중 청산단가 및 총 수익률 연산
+            agg_df['weighted_exit_price'] = agg_df['sum_weight_sell_val'] / agg_df['total_shares']
+            agg_df['total_profit_pct'] = agg_df.apply(
+                lambda r: (r['total_profit'] / (r['total_shares'] * r['entry_price']) * 100) if r['entry_price'] > 0 else 0.0,
+                axis=1
+            )
+            
+            # 4. 거래 기간 포맷팅 (YY.MM.DD ~ YY.MM.DD) 및 보유일 연산
+            def format_date_range(r):
+                try:
+                    dt_entry = pd.to_datetime(r['created_at'])
+                    dt_exit = pd.to_datetime(r['final_exit_date'])
+                    holding_days = (dt_exit - dt_entry).total_seconds() / 86400.0
+                    holding_days_val = max(0.1, round(holding_days, 1))
+                    return f"{dt_entry.strftime('%y.%m.%d')} ~ {dt_exit.strftime('%y.%m.%d')} ({holding_days_val}일)"
+                except Exception:
+                    return f"{r['created_at']} ~ {r['final_exit_date']}"
                     
-                profit_pct = (profit / (shares * p_price) * 100) if p_price > 0 else 0.0
-                total_profit += profit
+            agg_df['거래 기간'] = agg_df.apply(format_date_range, axis=1)
+            
+            rows_display = []
+            total_profit = agg_df['total_profit'].sum()
+            for _, row in agg_df.iterrows():
+                sym = row['symbol']
+                pos_type = row['position_type']
+                shares = row['total_shares']
+                entry_p = row['entry_price']
+                exit_p = row['weighted_exit_price']
+                profit = row['total_profit']
+                profit_pct = row['total_profit_pct']
+                date_range = row['거래 기간']
                 
-                rows_hist.append({
+                status_emoji = "🟢 수익" if profit > 0 else ("🔴 손실" if profit < 0 else "⚪ 본전")
+                
+                rows_display.append({
+                    '결과': status_emoji,
                     '티커': sym,
-                    '포지션': p_type,
-                    '수량': shares,
-                    '평균 매수가 ($)': p_price,
-                    '매도 청산가 ($)': s_price,
-                    '실현 손익 ($)': profit,
+                    '포지션': pos_type,
+                    '거래 기간 (보유일)': date_range,
+                    '총 수량': shares,
+                    '진입 단가 ($)': entry_p,
+                    '평균 청산가 ($)': exit_p,
+                    '누적 실현손익 ($)': profit,
                     '수익률 (%)': profit_pct,
-                    '진입 근거': entry_reason,
-                    '청산 사유': exit_reason,
-                    '거래일': trade_date
+                    'created_at': row['created_at']  # 조인용 보존
                 })
                 
-            hist_display_df = pd.DataFrame(rows_hist)
-            
+            hist_display_df = pd.DataFrame(rows_display)
+            if not hist_display_df.empty:
+                # 최초 진입일(created_at) 기준으로 최신순 정렬
+                hist_display_df = hist_display_df.sort_values(by='created_at', ascending=False)
+                
             # 요약 메트릭
-            st.metric("총 누적 실현손익", f"${total_profit:,.2f}", delta=f"{total_profit:+.2f}")
+            st.metric("💰 총 누적 실현손익", f"${total_profit:,.2f}", delta=f"{total_profit:+.2f}")
+            
+            # 노션 연동 링크 및 새로고침
+            l_col1, l_col2 = st.columns([3, 1])
+            with l_col1:
+                try:
+                    notion_db_id = st.secrets["notion"]["database_id"].replace("-", "")
+                    st.link_button("📓 내 노션 투자 저널 전체 보기", f"https://notion.so/{notion_db_id}", use_container_width=True)
+                except Exception:
+                    st.link_button("📓 내 노션 투자 저널 전체 보기", "https://notion.so", use_container_width=True)
+            with l_col2:
+                if st.button("🔄 기록 새로고침", use_container_width=True, key="refresh_th_tab"):
+                    st.cache_data.clear()
+                    st.rerun()
+                    
             st.divider()
             
-            st.dataframe(
-                hist_display_df,
+            # 마스터 테이블 렌더링
+            event_th = st.dataframe(
+                hist_display_df[['결과', '티커', '포지션', '거래 기간 (보유일)', '총 수량', '진입 단가 ($)', '평균 청산가 ($)', '누적 실현손익 ($)', '수익률 (%)']],
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "평균 매수가 ($)": st.column_config.NumberColumn("평균 매수가", format="$%.2f"),
-                    "매도 청산가 ($)": st.column_config.NumberColumn("청산 단가", format="$%.2f"),
-                    "실현 손익 ($)": st.column_config.NumberColumn("실현 손익", format="$%.2f"),
-                    "수익률 (%)": st.column_config.NumberColumn("수익률 (%)", format="%+.2f%%")
-                }
+                    "진입 단가 ($)": st.column_config.NumberColumn("진입 단가", format="$%.2f"),
+                    "평균 청산가 ($)": st.column_config.NumberColumn("평균 청산가", format="$%.2f"),
+                    "누적 실현손익 ($)": st.column_config.NumberColumn("실현 손익", format="$%.2f"),
+                    "수익률 (%)": st.column_config.NumberColumn("수익률 (%)", format="%+.2f%%"),
+                    "총 수량": st.column_config.NumberColumn("수량", format="%.1f")
+                },
+                selection_mode="single-row",
+                on_select="rerun",
+                key="th_dataframe_table"
             )
+            
+            # 디테일 복기 패널
+            selected_th_rows = event_th.selection.rows
+            if selected_th_rows:
+                sel_idx = selected_th_rows[0]
+                if sel_idx < len(hist_display_df):
+                    sel_row = hist_display_df.iloc[sel_idx]
+                    sel_ticker = sel_row['티커']
+                    sel_created = sel_row['created_at']
+                    sel_pos = sel_row['포지션']
+                    
+                    df_detail = history_df[
+                        (history_df['symbol'] == sel_ticker) &
+                        (history_df['position_type'] == sel_pos) &
+                        (history_df['created_at'] == sel_created)
+                    ].copy()
+                    
+                    st.subheader(f"🔍 포지션 상세 복기 및 분할 매도 이력: {sel_ticker} ({sel_pos})")
+                    
+                    for _, r in df_detail.sort_values(by='trade_date', ascending=True).iterrows():
+                        d_shares = float(r['shares'])
+                        d_p_price = float(r['purchase_price'])
+                        d_s_price = float(r['sell_price'])
+                        d_exit_reason = r['exit_reason'] if pd.notna(r['exit_reason']) else ""
+                        d_entry_reason = r['entry_reason'] if pd.notna(r['entry_reason']) else ""
+                        d_date = r['trade_date']
+                        
+                        if sel_pos == "SHORT":
+                            d_profit = d_shares * (d_p_price - d_s_price)
+                        else:
+                            d_profit = d_shares * (d_s_price - d_p_price)
+                            
+                        d_profit_pct = (d_profit / (d_shares * d_p_price) * 100) if d_p_price > 0 else 0.0
+                        
+                        with st.expander(f"📅 {d_date} | 청산 {d_shares}주 | 손익 ${d_profit:+.2f} ({d_profit_pct:+.2f}%)", expanded=True):
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                st.markdown(f"**진입 평단가**: ${d_p_price:.2f}  \n**청산 단가**: ${d_s_price:.2f}")
+                                if d_entry_reason:
+                                    st.info(f"💡 **진입 근거**: {d_entry_reason}")
+                            with c2:
+                                st.markdown(f"**실현손익**: ${d_profit:+.2f} ({d_profit_pct:+.2f}%)")
+                                if d_exit_reason:
+                                    st.warning(f"🏁 **청산 사유**: {d_exit_reason}")
+            else:
+                st.info("💡 위의 표에서 청산 완료된 포지션 행을 클릭하시면, 하단에 상세 분할 매도 이력과 시점별 진입 근거/복기가 타임라인으로 출력됩니다.")
+
 

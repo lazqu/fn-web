@@ -16,19 +16,31 @@ STOCKS_COLUMNS = [
     "updated_at",
 ]
 
-# Streamlit secrets에서 구글 서비스 계정 키 및 스프레드시트 URL 정보 읽기
-try:
-    creds = dict(st.secrets["gcp_service_account"])
-    # private_key가 JSON에서 개행 문자가 \n 문자열로 들어가 있을 수 있으므로 처리
-    if "private_key" in creds:
-        creds["private_key"] = creds["private_key"].replace("\\n", "\n")
+# 구글 스프레드 시트 연결 인스턴스 지연 초기화 (Lazy loading)
+gc = None
+sh = None
+connection_error = None
 
-    gc = gspread.service_account_from_dict(creds)
-    spreadsheet_url = st.secrets["google_sheets"]["spreadsheet_url"]
-    sh = gc.open_by_url(spreadsheet_url)
-except Exception as e:
-    st.error(f"구글 시트 연결 실패: secrets.toml 설정 및 공유 상태를 확인해 주세요. 에러: {e}")
-    sh = None
+def get_sh():
+    global gc, sh, connection_error
+    if sh is not None:
+        return sh
+    try:
+        creds = dict(st.secrets["gcp_service_account"])
+        # private_key가 JSON에서 개행 문자가 \n 문자열로 들어가 있을 수 있으므로 처리
+        if "private_key" in creds:
+            creds["private_key"] = creds["private_key"].replace("\\n", "\n")
+
+        gc = gspread.service_account_from_dict(creds)
+        spreadsheet_url = st.secrets["google_sheets"]["spreadsheet_url"]
+        sh = gc.open_by_url(spreadsheet_url)
+        connection_error = None
+        return sh
+    except Exception as e:
+        connection_error = f"구글 시트 연결 실패: secrets.toml 설정 및 공유 상태를 확인해 주세요. 에러: {e}"
+        sh = None
+        return None
+
 
 
 def _normalize_stocks_df(df):
@@ -56,6 +68,7 @@ def _normalize_stocks_df(df):
 
 def _ensure_sheet_schema(sheet_name, expected_columns):
     """지정한 시트의 컬럼이 기대하는 스키마를 따르도록 보정하고, 누락된 열을 추가합니다."""
+    sh = get_sh()
     if not sh:
         return
 
@@ -88,6 +101,7 @@ def _ensure_sheet_schema(sheet_name, expected_columns):
 
 def init_sheets():
     """앱 구동 시 필요한 6개의 시트가 없으면 생성하고 스키마를 보정합니다."""
+    sh = get_sh()
     if not sh:
         return
 
@@ -115,6 +129,7 @@ def init_sheets():
 # --- 1. 종목 캐시 (stocks) 관련 ---
 def get_stocks():
     """stocks 시트에서 전체 종목 데이터를 DataFrame으로 조회합니다."""
+    sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=STOCKS_COLUMNS)
 
@@ -126,6 +141,7 @@ def get_stocks():
 
 def save_stocks(df):
     """stocks 시트에 새로운 종목 리스트를 덮어씁니다."""
+    sh = get_sh()
     if not sh:
         return
 
@@ -157,6 +173,7 @@ def save_stocks(df):
 # --- 2. 코멘트 (comments) 관련 ---
 def get_comment(symbol):
     """특정 종목의 최신 코멘트를 구글 시트에서 가져옵니다."""
+    sh = get_sh()
     if not sh:
         return ""
     ws = sh.worksheet("comments")
@@ -169,6 +186,7 @@ def get_comment(symbol):
 
 def save_comment(symbol, content):
     """코멘트를 항상 새로 추가하여 누적 저장합니다."""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("comments")
@@ -189,6 +207,7 @@ def save_comment(symbol, content):
 
 def get_comments_list(symbol):
     """특정 종목의 모든 코멘트 리스트를 최초 작성일 최신순으로 가져옵니다 (시트 행 번호 포함)."""
+    sh = get_sh()
     if not sh:
         return []
     ws = sh.worksheet("comments")
@@ -215,6 +234,7 @@ def get_comments_list(symbol):
 
 def update_comment_by_row(row_num, new_content):
     """특정 행 번호의 코멘트 내용을 수정합니다 (최초 작성일은 보존하고 수정일만 갱신)."""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("comments")
@@ -225,6 +245,7 @@ def update_comment_by_row(row_num, new_content):
 
 def delete_comment_by_row(row_num):
     """특정 행 번호의 코멘트 행을 삭제합니다."""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("comments")
@@ -234,6 +255,7 @@ def delete_comment_by_row(row_num):
 # --- 3. 관심 종목 (watchlist) 관련 ---
 def get_watchlist():
     """관심 종목 리스트를 단순히 티커 목록만 가져옵니다 (호환성 유지)."""
+    sh = get_sh()
     if not sh:
         return []
     ws = sh.worksheet("watchlist")
@@ -248,6 +270,7 @@ def get_watchlist():
 
 def get_watchlist_details():
     """관심 종목 리스트를 상세 정보(그룹 포함) DataFrame으로 가져옵니다."""
+    sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=["symbol", "group_name", "created_at"])
     ws = sh.worksheet("watchlist")
@@ -262,6 +285,7 @@ def get_watchlist_details():
 
 def add_to_watchlist(symbol, group_name="기본 그룹"):
     """관심 종목의 특정 그룹에 추가합니다. (다중 그룹 소속 지원)"""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("watchlist")
@@ -290,6 +314,7 @@ def add_to_watchlist(symbol, group_name="기본 그룹"):
 
 def remove_from_watchlist(symbol, group_name=None):
     """관심 종목에서 제거합니다. group_name이 지정되면 특정 그룹에서만 제거하고, 없으면 모든 그룹에서 제거합니다."""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("watchlist")
@@ -316,6 +341,7 @@ def remove_from_watchlist(symbol, group_name=None):
 def get_portfolio():
     """포트폴리오 리스트를 DataFrame으로 가져옵니다."""
     expected_cols = ["symbol", "shares", "purchase_price", "entry_reason", "position_type", "created_at"]
+    sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=expected_cols)
     ws = sh.worksheet("portfolio")
@@ -334,6 +360,7 @@ def get_portfolio():
 
 def save_portfolio(symbol, shares, purchase_price, entry_reason="", position_type="LONG"):
     """포트폴리오 아이템을 추가하거나 수정합니다."""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("portfolio")
@@ -364,6 +391,7 @@ def save_portfolio(symbol, shares, purchase_price, entry_reason="", position_typ
 
 def remove_from_portfolio(symbol):
     """포트폴리오에서 아이템을 제거합니다."""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("portfolio")
@@ -381,6 +409,7 @@ def remove_from_portfolio(symbol):
 # --- 5. 조건부 타겟 (alerts) 관련 ---
 def get_alerts():
     """조건부 타겟 가격 알림 설정 목록을 DataFrame으로 조회합니다."""
+    sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=["symbol", "target_price", "condition_type", "is_triggered", "created_at"])
     ws = sh.worksheet("alerts")
@@ -399,6 +428,7 @@ def get_alerts():
 
 def save_alert(symbol, target_price, condition_type="above"):
     """조건부 타겟을 설정/저장합니다. (동일 조건이 이미 존재하면 덮어씀)"""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("alerts")
@@ -427,6 +457,7 @@ def save_alert(symbol, target_price, condition_type="above"):
 
 def remove_alert(symbol, condition_type):
     """특정 조건부 타겟을 감시 목록에서 삭제합니다."""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("alerts")
@@ -444,6 +475,7 @@ def remove_alert(symbol, condition_type):
 
 def set_alert_triggered(symbol, condition_type, is_triggered=True):
     """알림이 트리거되었음을 마킹합니다."""
+    sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("alerts")
@@ -464,6 +496,7 @@ def set_alert_triggered(symbol, condition_type, is_triggered=True):
 def get_trading_history():
     """청산 완료된 매매기록 목록을 DataFrame으로 조회합니다."""
     expected_cols = ["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date", "created_at"]
+    sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=expected_cols)
     ws = sh.worksheet("trading_history")
@@ -478,6 +511,7 @@ def get_trading_history():
 
 def liquidate_portfolio(symbol, sell_shares, sell_price, exit_reason=""):
     """포트폴리오 자산을 일부 또는 전부 청산하고 매매기록(trading_history)으로 이관하며 주문 원장에 기록하여 잔고를 재계산합니다."""
+    sh = get_sh()
     if not sh:
         return False
 
@@ -516,6 +550,7 @@ def liquidate_portfolio(symbol, sell_shares, sell_price, exit_reason=""):
 
 def recalculate_position(symbol, position_type):
     """주문 내역(order_history)의 모든 건을 시간순으로 누적 롤업 가중평균하여 portfolio 및 notion 정보를 동기화 재계산합니다."""
+    sh = get_sh()
     if not sh:
         return False
 
@@ -579,7 +614,7 @@ def recalculate_position(symbol, position_type):
             if shares > 0.0001:
                 nh.update_position_properties(page_id, avg_price=purchase_price, shares=shares, status="진입중")
             else:
-                nh.close_position_journal(page_id, return_rate=0.0, return_val=0.0, exit_reason="주문 취소에 따른 포지션 자동 전량 롤백 해제")
+                nh.close_position_journal(page_id, return_rate=0.0, return_val=0.0, feedback="주문 취소에 따른 포지션 자동 전량 롤백 해제")
     except Exception:
         pass
 
@@ -588,6 +623,7 @@ def recalculate_position(symbol, position_type):
 
 def remove_order_by_row(symbol, position_type, row_num):
     """order_history 시트에서 잘못 기입된 특정 행(row_num, 1-indexed)을 제거하고 포지션을 재연산합니다."""
+    sh = get_sh()
     if not sh:
         return False
 
@@ -603,6 +639,7 @@ def remove_order_by_row(symbol, position_type, row_num):
 
 def record_order(symbol, action_type, shares, price, reason="", position_type="LONG"):
     """주문 원장(order_history) 시트에 체결 이력을 기록합니다. 이후 해당 포지션을 즉시 자동 재연산합니다."""
+    sh = get_sh()
     if not sh:
         return False
     
