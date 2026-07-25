@@ -97,27 +97,34 @@ def render_order_history_panel(ticker, pos_type):
     if df_match.empty:
         return
 
-    with st.expander("⌛ 최근 체결 이력 관리 (오기 정정)", expanded=False):
+    with st.expander("⌛ 최근 체결 이력", expanded=False):
         # 최신 거래 순으로 역순 정렬
         df_match = df_match.sort_values(by="trade_date", ascending=False)
         
         # 각 주문 내역을 렌더링하고 삭제 버튼 제공
         for _, row in df_match.iterrows():
             r_num = int(row["row_num"])
-            action = row["action_type"]
-            shares = row["shares"]
-            price = row["price"]
+            action = str(row["action_type"]).upper()
+            shares = float(row["shares"])
+            price = float(row["price"])
             date_str = row["trade_date"]
-            reason = row["reason"] if pd.notna(row["reason"]) else ""
+            reason = str(row["reason"]).strip() if pd.notna(row["reason"]) else ""
             
             # 날짜 포맷 축소 (YYYY-MM-DD HH:MM:SS -> MM-DD HH:MM)
             date_display = str(date_str)[5:16] if len(str(date_str)) >= 16 else str(date_str)
+            
+            # 포지션 타입에 따른 진입/청산 뱃지 매핑
+            is_entry = (pos_type.upper() == "LONG" and action == "BUY") or (pos_type.upper() == "SHORT" and action == "SELL")
+            badge = "🟢 [진입]" if is_entry else "🔴 [청산]"
             
             c1, c2, c3 = st.columns([2.5, 7.0, 2.5])
             with c1:
                 st.caption(f"📅 {date_display}")
             with c2:
-                st.markdown(f"**{action}** {shares}주 (@${price:,.2f})  \n*└ 💡 {reason}*")
+                if reason:
+                    st.markdown(f"**{badge}** {shares:,.1f}주 (@${price:,.2f})  \n*└ 💡 {reason}*")
+                else:
+                    st.markdown(f"**{badge}** {shares:,.1f}주 (@${price:,.2f})")
             with c3:
                 if st.button("🗑️ 삭제", key=f"btn_del_ord_{r_num}", use_container_width=True):
                     if sh.remove_order_by_row(ticker, pos_type, r_num):
@@ -1754,39 +1761,36 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     '티커': sym,
                     '포지션': pos_type,
                     '종목명': name,
-                    '보유 수량': shares,
-                    '평균 매수가 ($)': avg_cost,
-                    '현재 주가 ($)': curr_price,
+                    '수량': shares,
+                    '평균 단가': avg_cost,
+                    '현재가': curr_price,
                     '투자 원금 ($)': cost,
                     '현재 평가액 ($)': val,
                     '수익률 (%)': gain_loss_pct,
                     '예상 연간 배당금 ($)': annual_div,
-                    '배당수익률(평단 기준)': (annual_div_per_share / avg_cost * 100) if avg_cost > 0 else 0.0
+                    '배당수익률(평단 기준)': (annual_div_per_share / avg_cost * 100) if avg_cost > 0 else 0.0,
+                    '진입 근거': entry_reason
                 })
                 
-            # 포트폴리오 요약 메트릭 표시
-            m1, m2, m3, m4 = st.columns(4)
+            # 포트폴리오 요약 메트릭 표시 (투자원금 및 평가금액 2단 배치)
+            m1, m2 = st.columns(2)
             m1.metric("총 투자원금", f"${total_invested:,.2f}")
             
             total_gain = total_current_val - total_invested
             total_gain_pct = (total_gain / total_invested * 100) if total_invested > 0 else 0.0
             m2.metric("총 평가금액", f"${total_current_val:,.2f}", f"{total_gain_pct:+.2f}%")
             
-            m3.metric("예상 세전 연배당금", f"${total_annual_div:,.2f}")
-            
-            avg_yield = (total_annual_div / total_current_val * 100) if total_current_val > 0 else 0.0
-            m4.metric("평균 배당수익률 (현재가)", f"{avg_yield:.2f}%")
-            
             st.divider()
             
-            # 보유 종목 상세 내역 테이블 (단일 행 선택 활성화 - 핵심 4개 칼럼만 노출)
+            # 보유 종목 상세 내역 테이블 (단일 행 선택 활성화 - 요구된 5개 칼럼 노출)
             pf_display_df = pd.DataFrame(rows)
             event_pf = st.dataframe(
-                pf_display_df[['티커', '포지션', '현재 평가액 ($)', '수익률 (%)']],
+                pf_display_df[['티커', '포지션', '현재가', '수량', '수익률 (%)']],
                 width="stretch",
                 hide_index=True,
                 column_config={
-                    "현재 평가액 ($)": st.column_config.NumberColumn("현재 평가액", format="$%,.2f"),
+                    "현재가": st.column_config.NumberColumn("현재가", format="$%,.2f"),
+                    "수량": st.column_config.NumberColumn("수량", format="%.1f"),
                     "수익률 (%)": st.column_config.NumberColumn("수익률", format="%+.2f%%")
                 },
                 selection_mode="single-row",
@@ -1814,8 +1818,10 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     
                     if sel_pos == "SHORT":
                         gain_loss = sel_shares * (sel_price - curr_price)
+                        val = cost + gain_loss
                     else:
                         gain_loss = sel_shares * (curr_price - sel_price)
+                        val = sel_shares * curr_price
                     gain_loss_pct = (gain_loss / cost * 100) if cost > 0 else 0.0
                     
                     stock_info = stocks_df[stocks_df['symbol'] == sel_ticker]
@@ -1826,19 +1832,16 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     else:
                         annual_div = sel_shares * annual_div_per_share
                     
-                    # UI 전문가 수준의 다단 구조 상세 정보 카드 렌더링
+                    # UI 전문가 수준의 다단 구조 상세 정보 카드 렌더링 (평가 가치 중심으로 재분배)
                     st.write("")
                     with st.container(border=True):
                         st.markdown(f"### 💼 **{sel_ticker} 자산 상세 지표 ({sel_pos})**")
                         col_d1, col_d2 = st.columns(2)
                         with col_d1:
-                            st.markdown(f"**보유 수량**: `{sel_shares:,.1f}주`  \n**평균 매수가**: `${sel_price:,.2f}`  \n**현재 주가**: `${curr_price:,.2f}`")
+                            st.markdown(f"**현재 평가액**: `${val:,.2f}`  \n**투자 원금**: `${cost:,.2f}`  \n**평균 단가**: `${sel_price:,.2f}`")
                         with col_d2:
-                            st.markdown(f"**투자 원금**: `${cost:,.2f}`  \n**평가 손익**: `${gain_loss:+,.2f} ({gain_loss_pct:+.2f}%)`  \n**예상 연간 배당금**: `${annual_div:,.2f}`")
+                            st.markdown(f"**현재가**: `${curr_price:,.2f}`  \n**평가 손익**: `${gain_loss:+,.2f} ({gain_loss_pct:+.2f}%)`  \n**예상 연간 배당금**: `${annual_div:,.2f}`")
                         
-                        if sel_reason:
-                            st.info(f"💬 **진입 근거 (메모)**: {sel_reason}")
-                
                 c_act1, c_act2, c_act3 = st.columns(3)
                 with c_act1:
                     if st.button("📊 상세 분석 차트로 이동", use_container_width=True, key="pf_goto_chart_btn", type="primary"):
