@@ -55,6 +55,11 @@ def get_trading_history_cached():
     return sh.get_trading_history()
 
 @st.cache_data(ttl=60)
+def get_order_history_cached():
+    ws_ord = sh.get_sh().worksheet("order_history")
+    return sh.get_as_dataframe(ws_ord).dropna(subset=["symbol"])
+
+@st.cache_data(ttl=60)
 def get_comment_cached(ticker):
     return sh.get_comment(ticker)
 
@@ -2282,21 +2287,80 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     sel_profit = sel_row['누적 실현손익 ($)']
                     sel_profit_pct = sel_row['수익률 (%)']
                     
-                    # position_id 기반 정밀 조인 (position_id가 없는 구형 레코드 대응을 위한 Fallback 조건 포함)
+                    # position_id 기반 정밀 조인 및 진입/청산 퓨전 타임라인 구축
+                    order_df = get_order_history_cached()
+                    
+                    # 1) 진입(최초/추가) 주문 리스트 획득
                     if sel_pos_id and str(sel_pos_id).strip():
-                        df_detail = history_df[
+                        entry_df = order_df[
+                            (order_df['position_id'] == sel_pos_id) &
+                            (order_df['action_type'] == ("BUY" if sel_pos == "LONG" else "SELL"))
+                        ].copy()
+                    else:
+                        entry_df = order_df[
+                            (order_df['symbol'] == sel_ticker) &
+                            (order_df['position_type'] == sel_pos) &
+                            (order_df['action_type'] == ("BUY" if sel_pos == "LONG" else "SELL")) &
+                            (order_df['trade_date'] >= sel_created) &
+                            (order_df['trade_date'] <= str(sel_row['created_at'])) # 최초 진입 시각 기준 폴백
+                        ].copy()
+                        
+                    # 2) 청산 완료 기록 리스트 획득
+                    if sel_pos_id and str(sel_pos_id).strip():
+                        exit_df = history_df[
                             (history_df['symbol'] == sel_ticker) &
                             (history_df['position_type'] == sel_pos) &
                             (history_df['position_id'] == sel_pos_id)
                         ].copy()
                     else:
-                        df_detail = history_df[
+                        exit_df = history_df[
                             (history_df['symbol'] == sel_ticker) &
                             (history_df['position_type'] == sel_pos) &
                             (history_df['created_at'] == sel_created)
                         ].copy()
+
+                    # 3) 두 데이터를 통일된 딕셔너리 구조로 매핑 후 Union 합산
+                    timeline_records = []
                     
-                    st.subheader(f"🔍 포지션 분할 청산 상세 이력: {sel_ticker} ({sel_pos})")
+                    # 진입 기록 이식
+                    for _, r in entry_df.iterrows():
+                        o_shares = float(r['shares'])
+                        o_price = float(r['price'])
+                        timeline_records.append({
+                            'type': 'ENTRY',
+                            'date': r['trade_date'],
+                            'shares': o_shares,
+                            'price': o_price,
+                            'entry_price': o_price,
+                            'cost': o_shares * o_price,
+                            'profit': 0.0,
+                            'profit_pct': 0.0,
+                            'memo': str(r['reason']) if pd.notna(r['reason']) else ""
+                        })
+                        
+                    # 청산 기록 이식
+                    for _, r in exit_df.iterrows():
+                        o_shares = float(r['shares'])
+                        o_s_price = float(r['sell_price'])
+                        o_p_price = float(r['purchase_price'])
+                        o_profit = float(r['profit'])
+                        o_profit_pct = (o_profit / (o_shares * o_p_price) * 100) if o_p_price > 0 else 0.0
+                        timeline_records.append({
+                            'type': 'EXIT',
+                            'date': r['trade_date'],
+                            'shares': o_shares,
+                            'price': o_s_price,
+                            'entry_price': o_p_price,
+                            'cost': o_shares * o_p_price,
+                            'profit': o_profit,
+                            'profit_pct': o_profit_pct,
+                            'memo': str(r['exit_reason']) if pd.notna(r['exit_reason']) else ""
+                        })
+                        
+                    # 체결 일시(date) 오름차순 정렬 (최초 진입부터 순서대로 나열)
+                    timeline_records.sort(key=lambda x: str(x['date']))
+
+                    st.subheader(f"🔍 포지션 거래 이력 상세 타임라인: {sel_ticker} ({sel_pos})")
                     
                     # 노션 링크 조회 및 노출
                     closed_page_id = nh.get_closed_position_page_id(sel_ticker, sel_created)
@@ -2312,7 +2376,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
                         
                     # 포지션 종합 요약 지표 카드 렌더링
                     with st.container(border=True):
-                        st.markdown(f"📊 **{sel_ticker} 포지션 실현 성적 요약**")
+                        st.markdown(f"📊 **{sel_ticker} 포지션 최종 실현 성적**")
                         col_h1, col_h2 = st.columns(2)
                         with col_h1:
                             st.markdown(f"**거래 기간**: `{sel_date_range}`  \n**진입 단가**: `${sel_entry_p:,.2f}`  \n**평균 청산가**: `${sel_exit_p:,.2f}`")
@@ -2321,31 +2385,33 @@ elif st.session_state.menu == "💼 내 투자 관리":
                             
                     st.markdown("⛓️ **상세 체결 타임라인 (주문 DB 기록)**")
                     
-                    for _, r in df_detail.sort_values(by='trade_date', ascending=True).iterrows():
-                        d_shares = float(r['shares'])
-                        d_p_price = float(r['purchase_price'])
-                        d_s_price = float(r['sell_price'])
-                        d_date = r['trade_date']
-                        d_exit_reason = r['exit_reason'] if pd.notna(r['exit_reason']) else ""
+                    for r in timeline_records:
+                        o_type = r['type']
+                        o_date = r['date']
+                        o_shares = r['shares']
+                        o_price = r['price']
+                        o_memo = r['memo']
                         
-                        if sel_pos == "SHORT":
-                            d_profit = d_shares * (d_p_price - d_s_price)
+                        if o_type == 'ENTRY':
+                            expander_title = f"🟢 [진입] 📅 {o_date} | 수량 {o_shares:,.1f}주 (@${o_price:,.2f})"
+                            with st.expander(expander_title, expanded=False):
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    st.markdown(f"**진입 단가**: `${o_price:,.2f}`  \n**체결 수량**: `{o_shares:,.1f}주`")
+                                with c2:
+                                    st.markdown(f"**투자 원금**: `${r['cost']:,.2f}`")
+                                if o_memo:
+                                    st.info(f"💬 **진입 근거 (메모)**: {o_memo}")
                         else:
-                            d_profit = d_shares * (d_s_price - d_p_price)
-                        d_profit_pct = (d_profit / (d_shares * d_p_price) * 100) if d_p_price > 0 else 0.0
-                        
-                        # 접혀 있을 때의 타이틀은 극도로 심플하게 팩트만 표시
-                        expander_title = f"📅 {d_date} | 청산 {d_shares:,.1f}주 (@${d_s_price:,.2f})"
-                        
-                        with st.expander(expander_title, expanded=False):
-                            c1, c2 = st.columns(2)
-                            with c1:
-                                st.markdown(f"**진입 평단가**: `${d_p_price:,.2f}`  \n**청산 단가**: `${d_s_price:,.2f}`")
-                            with c2:
-                                st.markdown(f"**실현 손익**: `{d_profit:+,.2f}`  \n**수익률 (%)**: `{d_profit_pct:+.2f}%`")
-                            
-                            if d_exit_reason:
-                                st.info(f"🏁 **청산 사유**: {d_exit_reason}")
+                            expander_title = f"🔴 [청산] 📅 {o_date} | 청산 {o_shares:,.1f}주 (@${o_price:,.2f})"
+                            with st.expander(expander_title, expanded=False):
+                                c1, c2 = st.columns(2)
+                                with c1:
+                                    st.markdown(f"**진입 평단가**: `${r['entry_price']:,.2f}`  \n**청산 단가**: `${o_price:,.2f}`")
+                                with c2:
+                                    st.markdown(f"**실현 손익**: `${r['profit']:+,.2f}`  \n**수익률 (%)**: `{r['profit_pct']:+.2f}%`")
+                                if o_memo:
+                                    st.info(f"🏁 **청산 사유**: {o_memo}")
             else:
                 st.info("💡 위의 표에서 청산 완료된 포지션 행을 클릭하시면, 하단에 상세 분할 매도 이력과 노션 투자 저널 바로가기 링크가 출력됩니다.")
 
