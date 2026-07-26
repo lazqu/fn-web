@@ -495,60 +495,122 @@ if selected_menu != st.session_state.menu:
 # 실시간 대문자 변환 및 데스크탑 풀와이드 스틱키 헤더 CSS 주입
 st.markdown("""
 <style>
-/* Streamlit 기본 헤더 바를 투명하게 만들어 관리 도구(우측 상단 툴바) 및 토글 버튼들이 정상적으로 작동하도록 함 */
+/* Streamlit 기본 헤더 바 투명화 */
 header[data-testid="stHeader"] {
     background-color: transparent !important;
 }
 
-/* 사이드바 접힘 상태의 열기 버튼 컨테이너(collapsedSidebarCodegen)가 풀와이드 헤더 위에 둥둥 떠서 항상 노출되도록 보정 */
-[data-testid="collapsedSidebarCodegen"] {
-    z-index: 999999 !important;
-}
-[data-testid="stSidebarCollapseButton"] {
+/* 사이드바 접힘 상태의 열기 버튼 및 기타 버튼들이 최상단 네비바 위에서도 클릭되도록 레이어 조정 */
+[data-testid="collapsedSidebarCodegen"], [data-testid="stSidebarCollapseButton"] {
     z-index: 999999 !important;
 }
 [data-testid="stSidebarCollapseButton"] button {
-    color: #38bdf8 !important; /* 사이언 네온 단추 색상 적용 */
+    color: #38bdf8 !important; /* 사이언 네온 색상 */
 }
 
-div[data-testid="stTextInput"] input {
-    text-transform: uppercase !important;
-}
-
-/* 탑 네비게이션 바 스타일링 (st.container key="top_header_container" 연동) */
+/* 탑 네비게이션 바 스타일링 (컨텐트 본문 너비에 맞춘 프리미엄 플로팅 헤더) */
 div.st-key-top_header_container {
-    position: sticky !important;
-    top: -6rem !important;
-    background: linear-gradient(90deg, #0f172a 0%, #1e293b 100%) !important;
-    border-bottom: 2px solid #38bdf8 !important; /* 사이언 네온 아웃라인 하단 배치 */
-    border-radius: 0px !important;
-    z-index: 99 !important; /* 사이드바 아래 레이어에 둠 */
-    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.4) !important;
-    width: auto !important;
-    
-    /* 기본 모바일/패드 반응형 여백 초기화 */
-    margin-left: -1rem !important;
-    margin-right: -1rem !important;
-    margin-top: -6rem !important;
-    padding: 1.2rem 1.5rem !important;
+    background: rgba(15, 23, 42, 0.95) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(56, 189, 248, 0.25) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
+    width: 100% !important;
+    margin-top: -3.5rem !important; /* 상단 빈 여백 보정 */
+    margin-bottom: 1.5rem !important;
+    padding: 0.9rem 1.5rem !important; /* 좌우 1.5rem으로 완전히 대칭적인 패딩 지정 */
 }
 
-/* 데스크탑 화면 패딩 오프셋 보정 (Streamlit 기본 block-container 패딩 상쇄) */
-@media (min-width: 768px) {
-    div.st-key-top_header_container {
-        margin-left: -5rem !important;
-        margin-right: -5rem !important;
-        margin-top: -6rem !important;
-        padding-left: 5rem !important;
-        padding-right: 5rem !important;
-    }
+/* 3. 헤더 내 컬럼들의 기본 개별 패딩을 제거하여 전체 패딩(1.5rem)에 의해 완벽한 가로 정렬 및 균형 보장 */
+div.st-key-top_header_container div[data-testid="column"] {
+    padding: 0px !important;
 }
 
+/* 타이틀: 반응형 폰트와 절대 쪼개지지 않는 nowrap 설정 */
 div.st-key-top_header_container h2 {
-    color: #38bdf8 !important; /* 타이틀 사이언 블루 강조 */
+    color: #38bdf8 !important;
     font-weight: 800 !important;
     margin: 0 !important;
     line-height: 40px !important;
+    font-size: clamp(1.2rem, 2.5vw, 1.75rem) !important;
+    white-space: nowrap !important;
+    letter-spacing: -0.02em !important;
+}
+
+/* 수직 정렬 정렬선 구축을 위해 st.columns 내부 정렬 설정 */
+div.st-key-top_header_container div[data-testid="column"] {
+    display: flex !important;
+    align-items: center !important;
+    align-content: center !important;
+}
+
+/* 헤더 신속 조회 검색창 마진 상쇄 및 커스텀 스타일링 (글래스모픽 텍스트 인풋) */
+div[data-testid="stTextInput"]:has(#hdr_ticker_input) {
+    width: 100% !important;
+    margin-top: 0px !important;
+}
+div[data-testid="stTextInput"]:has(#hdr_ticker_input) > div {
+    margin-top: 0px !important;
+}
+/* 모바일/라이트 테마 포함 어떤 브라우저 설정에서도 강제로 어두운 입력창을 보장하여 글자와의 대비 확보 */
+div[data-testid="stTextInput"]:has(#hdr_ticker_input) div[data-baseweb="base-input"],
+div[data-testid="stTextInput"]:has(#hdr_ticker_input) div[data-baseweb="input"] {
+    background-color: #1e293b !important; /* 확실한 다크 슬레이트 솔리드 배경색 강제 지정 */
+    border: 1px solid rgba(56, 189, 248, 0.35) !important;
+    border-radius: 8px !important;
+}
+#hdr_ticker_input {
+    text-transform: uppercase !important;
+    background-color: transparent !important;
+    color: #ffffff !important;
+    height: 40px !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.05em !important;
+    padding-left: 12px !important;
+    border: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+#hdr_ticker_input::placeholder {
+    color: rgba(255, 255, 255, 0.5) !important; /* 고대비 하얀색 반투명 플레이스홀더 */
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+}
+#hdr_ticker_input::-webkit-input-placeholder {
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+#hdr_ticker_input::-moz-placeholder {
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+#hdr_ticker_input:focus {
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.55) !important;
+}
+
+/* 조회 버튼 커스텀 (네온 그라데이션 + 호버 인터랙션 + 최소 너비 보장으로 개행 방지) */
+div.st-key-top_header_container div[data-testid="stButton"] button {
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(56, 189, 248, 0.5) !important;
+    border-radius: 8px !important;
+    height: 40px !important;
+    font-size: 0.9rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.03em !important;
+    min-width: 80px !important; /* 가로 너비 부족으로 '조\n회' 쪼개지는 현상 강제 차단 */
+    white-space: nowrap !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2) !important;
+}
+div.st-key-top_header_container div[data-testid="stButton"] button:hover {
+    background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%) !important;
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.7) !important;
+    transform: translateY(-1px) !important;
+}
+div.st-key-top_header_container div[data-testid="stButton"] button:active {
+    transform: translateY(1px) !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -557,22 +619,21 @@ def make_hdr_ticker_uppercase():
     if "hdr_ticker_input" in st.session_state:
         st.session_state.hdr_ticker_input = st.session_state.hdr_ticker_input.strip().upper()
 
-with st.container(border=True, key="top_header_container"):
-    col_hdr_title, col_hdr_search = st.columns([5, 3])
+with st.container(border=False, key="top_header_container"):
+    col_hdr_title, col_inp, col_btn = st.columns([4, 3, 1]) # 단일 레벨 컬럼 구조로 개행 및 우측 쏠림 방지
     with col_hdr_title:
         st.markdown("<h2 style='margin:0; padding:0; line-height: 40px;'>💰 배당 모니터링 시스템</h2>", unsafe_allow_html=True)
-    with col_hdr_search:
-        col_inp, col_btn = st.columns([3, 1])
-        with col_inp:
-            hdr_ticker_input = st.text_input(
-                "🔍 종목 신속 조회 (티커 입력)", 
-                value=st.session_state.ticker, 
-                label_visibility="collapsed", 
-                key="hdr_ticker_input",
-                on_change=make_hdr_ticker_uppercase
-            ).strip().upper()
-        with col_btn:
-            hdr_query_btn = st.button("조회", use_container_width=True, key="hdr_query_btn")
+    with col_inp:
+        hdr_ticker_input = st.text_input(
+            "🔍 종목 신속 조회 (티커 입력)", 
+            value=st.session_state.ticker, 
+            placeholder="예: AAPL, SCHD",
+            label_visibility="collapsed", 
+            key="hdr_ticker_input",
+            on_change=make_hdr_ticker_uppercase
+        ).strip().upper()
+    with col_btn:
+        hdr_query_btn = st.button("조회", use_container_width=True, key="hdr_query_btn")
 
 if hdr_query_btn or (hdr_ticker_input and hdr_ticker_input != st.session_state.ticker):
     st.session_state.ticker = hdr_ticker_input
@@ -1933,6 +1994,22 @@ elif st.session_state.menu == "💼 내 투자 관리":
         st.subheader("⭐ 내 관심 종목 목록")
         watchlist_details = get_watchlist_details_cached()
         
+        # 관심 그룹 추가 및 관리
+        with st.expander("📁 관심 그룹 신규 생성 및 정리"):
+            with st.form("wl_new_group_form"):
+                st.markdown("**새 관심 그룹 및 종목 동시 생성**")
+                g_ticker = st.text_input("그룹에 최초 등록할 종목 티커 입력 (예: APPL)", "").strip().upper()
+                g_name = st.text_input("새로 생성할 그룹 이름 입력", "").strip()
+                g_submit = st.form_submit_button("그룹 생성 및 종목 배정")
+                if g_submit:
+                    if g_ticker and g_name:
+                        sh.add_to_watchlist(g_ticker, g_name)
+                        st.cache_data.clear()
+                        st.success(f"새 관심 그룹 '{g_name}'에 '{g_ticker}' 등록 완료!")
+                        st.rerun()
+                    else:
+                        st.error("티커와 그룹 이름을 모두 입력해 주세요.")
+
         if watchlist_details.empty:
             st.info("관심 등록된 종목이 없습니다. 사이드바 검색창이나 우측 그룹 관리를 통해 추가해 주세요.")
         else:
@@ -2057,21 +2134,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
             else:
                 st.info("💡 위의 관심 종목 표에서 종목 행을 클릭하시면 차트 이동, 알림 등록, 자산 매수(포폴 등록), 관심 해제 등의 단축 연동 제어가 가능합니다.")
 
-        # 관심 그룹 추가 및 관리
-        with st.expander("📁 관심 그룹 신규 생성 및 정리"):
-            with st.form("wl_new_group_form"):
-                st.markdown("**새 관심 그룹 및 종목 동시 생성**")
-                g_ticker = st.text_input("그룹에 최초 등록할 종목 티커 입력 (예: APPL)", "").strip().upper()
-                g_name = st.text_input("새로 생성할 그룹 이름 입력", "").strip()
-                g_submit = st.form_submit_button("그룹 생성 및 종목 배정")
-                if g_submit:
-                    if g_ticker and g_name:
-                        sh.add_to_watchlist(g_ticker, g_name)
-                        st.cache_data.clear()
-                        st.success(f"새 관심 그룹 '{g_name}'에 '{g_ticker}' 등록 완료!")
-                        st.rerun()
-                    else:
-                        st.error("티커와 그룹 이름을 모두 입력해 주세요.")
+
 
     # ------------------ Tab 3: 조건부 타겟 ------------------
     with tab_al:
