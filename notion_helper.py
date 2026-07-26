@@ -328,9 +328,42 @@ def close_position_journal(page_id, return_rate, return_val, feedback, adherence
         st.warning(f"Notion 최종 피드백 본문 추가 실패: {e}")
         return False
 
+def get_page_content_text(page_id):
+    """
+    페이지 본문의 텍스트 내용들을 취합하여 반환합니다. (최초 분석 및 누적 매매/코멘트 타임라인 전체)
+    """
+    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+    headers = get_notion_headers()
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            blocks = response.json().get("results", [])
+            text_parts = []
+            for block in blocks:
+                b_type = block.get("type", "")
+                if b_type in ["paragraph", "bulleted_list_item", "numbered_list_item", "heading_1", "heading_2", "heading_3"]:
+                    rich_texts = block.get(b_type, {}).get("rich_text", [])
+                    content = "".join(rt.get("text", {}).get("content", "") for rt in rich_texts).strip()
+                    if content:
+                        if b_type == "bulleted_list_item":
+                            text_parts.append(f"* {content}")
+                        elif b_type == "numbered_list_item":
+                            text_parts.append(f"1. {content}")
+                        elif b_type.startswith("heading_"):
+                            level = b_type.split("_")[1]
+                            text_parts.append(f"\n{'#' * int(level)} {content}\n")
+                        else:
+                            text_parts.append(content)
+            return "\n".join(text_parts).strip()
+        return ""
+    except Exception:
+        return ""
+
+
 def backup_notion_to_local(target_dir="docs/journals"):
     """
-    기존 호환성 유지용 백업 기능
+    Notion 데이터베이스에 쌓인 모든 페이지를 로컬 마크다운 파일로 다운로드합니다.
+    (페이지네이션 지원)
     """
     os.makedirs(target_dir, exist_ok=True)
     database_id = st.secrets["notion"]["database_id"]
@@ -369,11 +402,12 @@ def backup_notion_to_local(target_dir="docs/journals"):
                 price_val = props.get("평균 매수 단가", {}).get("number", 0.0)
                 if price_val is None: price_val = 0.0
                 
-                # 투자 판단 근거는 속성이 없을 수도 있으니 방어 처리
-                entry_reason = ""
-                comment_prop = props.get("판단 근거", {}).get("rich_text", [])
-                if comment_prop:
-                    entry_reason = comment_prop[0].get("text", {}).get("content", "")
+                # 상태 추출
+                status_prop = props.get("상태", {}).get("select", {})
+                status_val = status_prop.get("name", "진입중") if status_prop else "진입중"
+                
+                # 페이지 본문 내용 (최초 분석 및 매매/코멘트 히스토리 전체) 읽어오기
+                page_content = get_page_content_text(page["id"])
                 
                 # 마크다운 템플릿 생성
                 filename = f"{ticker}_{date_val}.md"
@@ -383,9 +417,13 @@ def backup_notion_to_local(target_dir="docs/journals"):
                 with open(file_path, "w", encoding="utf-8") as f:
                     f.write(f"# {ticker} 투자 저널 ({date_val})\n\n")
                     f.write(f"## 📊 진입 당시 주요 지표\n")
-                    f.write(f"* **주가**: ${price_val:,.2f}\n\n")
-                    f.write(f"## ✍️ 투자 판단 근거 및 코멘트\n")
-                    f.write(f"{entry_reason}\n")
+                    f.write(f"* **평균 매수 단가**: ${price_val:,.2f}\n")
+                    f.write(f"* **현재 상태**: {status_val}\n\n")
+                    f.write(f"## ✍️ 투자 저널 본문 내역\n")
+                    if page_content:
+                        f.write(f"{page_content}\n")
+                    else:
+                        f.write(f"(본문 기록 없음)\n")
                 
                 success_count += 1
                 

@@ -376,7 +376,8 @@ def save_portfolio(symbol, shares, purchase_price, entry_reason="", position_typ
     for i, row in enumerate(data):
         if i == 0:
             continue
-        if row and row[0].strip().upper() == symbol:
+        row_pos_type = row[4].strip().upper() if len(row) > 4 else "LONG"
+        if row and row[0].strip().upper() == symbol and row_pos_type == position_type:
             found_idx = i
             break
 
@@ -395,19 +396,21 @@ def save_portfolio(symbol, shares, purchase_price, entry_reason="", position_typ
         ws.append_row([symbol, float(shares), float(purchase_price), entry_reason, position_type, now_str, position_id])
 
 
-def remove_from_portfolio(symbol):
+def remove_from_portfolio(symbol, position_type="LONG"):
     """포트폴리오에서 아이템을 제거합니다."""
     sh = get_sh()
     if not sh:
         return
     ws = sh.worksheet("portfolio")
     symbol = symbol.strip().upper()
+    position_type = position_type.strip().upper() if position_type else "LONG"
     data = ws.get_all_values()
 
     for i, row in enumerate(data):
         if i == 0:
             continue
-        if row and row[0].strip().upper() == symbol:
+        row_pos_type = row[4].strip().upper() if len(row) > 4 else "LONG"
+        if row and row[0].strip().upper() == symbol and row_pos_type == position_type:
             ws.delete_rows(i + 1)
             break
 
@@ -611,12 +614,13 @@ def recalculate_position(symbol, position_type):
                 shares = 0.0
                 purchase_price = 0.0
                 entry_reason = ""
+                pos_id = None
 
     # 2. 결과에 따른 포트폴리오 업데이트
     if shares > 0.0001:
         save_portfolio(symbol, shares, purchase_price, entry_reason, position_type, position_id=pos_id)
     else:
-        remove_from_portfolio(symbol)
+        remove_from_portfolio(symbol, position_type)
 
     # 3. 노션 동기화
     try:
@@ -667,7 +671,7 @@ def record_order(symbol, action_type, shares, price, reason="", position_type="L
     # position_id 처리
     if not position_id:
         portfolio_df = get_portfolio()
-        match_rows = portfolio_df[portfolio_df["symbol"] == symbol]
+        match_rows = portfolio_df[(portfolio_df["symbol"] == symbol) & (portfolio_df["position_type"] == position_type)]
         if not match_rows.empty and "position_id" in match_rows.columns:
             existing_pos_id = match_rows.iloc[0]["position_id"]
             if pd.notna(existing_pos_id) and str(existing_pos_id).strip():

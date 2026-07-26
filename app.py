@@ -1201,28 +1201,16 @@ if st.session_state.menu == "📊 개별 종목 분석":
         key="quick_comment_input"
     )
 
-    col_btn1, col_btn2 = st.columns(2)
-    with col_btn1:
-        if st.button("➕ 구글 시트에 새 코멘트 추가 저장", width="stretch", type="primary"):
-            if not comment_in.strip():
-                st.warning("추가할 코멘트 내용을 입력해주세요.")
-            else:
-                sh.save_comment(ticker, comment_in)
-                if "quick_comment_input" in st.session_state:
-                    del st.session_state["quick_comment_input"]
-                st.cache_data.clear()
-                st.success("새 코멘트가 성공적으로 구글 시트에 추가 저장되었습니다.")
-                st.rerun()
-            
-    with col_btn2:
-        if st.button("📝 노션에 투자일지 기록", width="stretch"):
-            import notion_helper as nh
-            with st.spinner("노션 API 전송 중..."):
-                success = nh.send_journal_to_notion(ticker, current_price, current_yield, comment_in)
-            if success:
-                st.success(f"🎉 {ticker} 투자일지가 노션에 성공적으로 기록되었습니다!")
-            else:
-                st.error("노션 기록에 실패했습니다. secrets.toml의 토큰과 DB ID 설정을 확인해 주세요.")
+    if st.button("➕ 구글 시트에 새 코멘트 추가 저장", use_container_width=True, type="primary"):
+        if not comment_in.strip():
+            st.warning("추가할 코멘트 내용을 입력해주세요.")
+        else:
+            sh.save_comment(ticker, comment_in)
+            if "quick_comment_input" in st.session_state:
+                del st.session_state["quick_comment_input"]
+            st.cache_data.clear()
+            st.success("새 코멘트가 성공적으로 구글 시트에 추가 저장되었습니다.")
+            st.rerun()
 
     # --- 2단계: 메인 차트 및 배당 변동 주기 상세 내역 (최하단 배치) ---
     st.divider()
@@ -1566,6 +1554,31 @@ div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-
                 sel_market_cap = selected_stock["시가총액"]
                 sel_yield = selected_stock["배당률"]
 
+                # 1. 포트폴리오 데이터 캐시 및 필터링
+                portfolio_df = get_portfolio_cached()
+                in_portfolio = sel_ticker in portfolio_df['symbol'].values
+                p_shares = 0.0
+                p_price = 0.0
+                p_entry_reason = ""
+                p_pos_type = "LONG"
+                
+                if in_portfolio:
+                    p_row = portfolio_df[portfolio_df['symbol'] == sel_ticker].iloc[0]
+                    p_shares = float(p_row['shares'])
+                    p_price = float(p_row['purchase_price'])
+                    p_entry_reason = str(p_row['entry_reason']) if pd.notna(p_row['entry_reason']) else ""
+                    p_pos_type = str(p_row.get('position_type', 'LONG')).upper()
+
+                # 2. 실시간 가격 조회 (yfinance 1d 다운로드)
+                try:
+                    price_data = yf.download(sel_ticker, period="1d", progress=False)
+                    if not price_data.empty:
+                        sel_curr_price = float(price_data['Close'].squeeze().iloc[-1])
+                    else:
+                        sel_curr_price = p_price if p_price > 0 else 0.0
+                except Exception:
+                    sel_curr_price = p_price if p_price > 0 else 0.0
+
                 c_ins1, c_ins2, c_ins3 = st.columns([1, 1, 1])
                 
                 with c_ins1:
@@ -1587,122 +1600,84 @@ div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-
                     st.markdown("<div style='padding-top: 5px;'></div>", unsafe_allow_html=True)
                     
                     # 1. 상세 차트 분석 이동
-                    if st.button("📊 상세 차트 분석 이동", width="stretch", type="primary"):
+                    if st.button("📊 상세 차트 분석 이동", width="stretch", type="primary", key="ins_goto_chart"):
                         st.session_state.ticker = sel_ticker
                         st.session_state.menu = "📊 개별 종목 분석"
                         st.cache_data.clear()
                         st.rerun()
                     
-                    # 2. 관심종목 토글
-                    watchlist = get_watchlist_cached()
-                    is_in_wl = sel_ticker in watchlist
-                    if is_in_wl:
-                        if st.button("⭐ 관심 종목 해제", width="stretch"):
-                            sh.remove_from_watchlist(sel_ticker)
-                            st.cache_data.clear()
-                            st.toast(f"⭐ {sel_ticker} 관심 종목 해제 완료!")
-                            st.rerun()
+                    # 2. 관심그룹 설정
+                    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+                    wl_details = get_watchlist_details_cached()
+                    my_groups = wl_details[wl_details['symbol'] == sel_ticker]['group_name'].tolist() if not wl_details.empty else []
+                    
+                    if my_groups:
+                        st.markdown(f"⭐ **소속 그룹**: " + ", ".join([f"`{g}`" for g in my_groups]))
                     else:
-                        if st.button("⭐ 관심 종목 등록", width="stretch"):
-                            sh.add_to_watchlist(sel_ticker)
-                            st.cache_data.clear()
-                            st.toast(f"⭐ {sel_ticker} 관심 종목 등록 완료!")
-                            st.rerun()
+                        st.caption("현재 관심 종목에 등록되어 있지 않습니다.")
+                        
+                    all_groups = sorted(wl_details['group_name'].dropna().unique().tolist()) if not wl_details.empty else []
+                    if "기본 그룹" not in all_groups:
+                        all_groups.insert(0, "기본 그룹")
+                        
+                    group_sel = st.selectbox("추가할 관심 그룹 선택", all_groups + ["+ 새 그룹 추가..."], key="ins_wl_group_sel")
+                    if group_sel == "+ 새 그룹 추가...":
+                        new_group = st.text_input("새 그룹명 입력", "", key="ins_wl_new_group_text").strip()
+                        group_to_save = new_group
+                    else:
+                        group_to_save = group_sel
+
+                    c_wl_btn1, c_wl_btn2 = st.columns(2)
+                    with c_wl_btn1:
+                        if st.button("⭐ 관심 추가", width="stretch", key="ins_wl_save_btn", type="primary"):
+                            if group_sel == "+ 새 그룹 추가..." and not group_to_save:
+                                st.error("그룹명을 입력해주세요.")
+                            elif group_to_save in my_groups:
+                                st.warning("⚠️ 이미 해당 그룹에 존재합니다.")
+                            else:
+                                sh.add_to_watchlist(sel_ticker, group_to_save)
+                                if "ins_wl_group_sel" in st.session_state:
+                                    del st.session_state["ins_wl_group_sel"]
+                                if "ins_wl_new_group_text" in st.session_state:
+                                    del st.session_state["ins_wl_new_group_text"]
+                                get_watchlist_cached.clear()
+                                get_watchlist_details_cached.clear()
+                                st.success(f"관심 그룹 '{group_to_save}'에 추가 완료!")
+                                st.rerun()
+                    with c_wl_btn2:
+                        if my_groups:
+                            del_group_sel = st.selectbox("제거할 그룹 선택", my_groups, key="ins_wl_del_group_sel")
+                            if st.button("🗑️ 그룹 해제", width="stretch", key="ins_wl_del_btn"):
+                                sh.remove_from_watchlist(sel_ticker, del_group_sel)
+                                get_watchlist_cached.clear()
+                                get_watchlist_details_cached.clear()
+                                st.success(f"'{del_group_sel}' 그룹에서 해제 완료!")
+                                st.rerun()
+                        else:
+                            st.button("🗑️ 그룹 해제", width="stretch", disabled=True, key="ins_wl_del_btn_dis")
                             
                 with c_ins3:
-                    # 3열: 포트폴리오 관리 (caption 헤더로 통일하여 베이스라인을 일치시킴)
-                    portfolio_df = get_portfolio_cached()
-                    in_portfolio = sel_ticker in portfolio_df['symbol'].values
-                    p_shares = 0.0
-                    p_price = 0.0
-                    p_pos_type = "LONG"
+                    st.caption("💼 포트폴리오 자산 관리")
                     
                     if in_portfolio:
-                        row = portfolio_df[portfolio_df['symbol'] == sel_ticker].iloc[0]
-                        p_shares = float(row['shares'])
-                        p_price = float(row['purchase_price'])
-                        p_pos_type = str(row.get('position_type', 'LONG')).upper()
-                        status_tag = f"<span style='font-size:0.72rem;color:#059669;font-weight:700;'>(보유: {p_shares}주)</span>"
+                        status_tag = f"<span style='font-size:0.75rem;color:#059669;font-weight:700;'>(보유: {p_shares}주 @${p_price:.2f}, {p_pos_type})</span>"
                     else:
-                        status_tag = "<span style='font-size:0.72rem;color:#64748b;font-weight:700;'>(미보유)</span>"
+                        status_tag = "<span style='font-size:0.75rem;color:#64748b;font-weight:700;'>(미보유)</span>"
                     
-                    st.markdown(f"<div style='font-size: 0.8rem; color: #475569; margin-bottom: 2px;'>💼 포트폴리오 자산 {status_tag}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size: 0.8rem; color: #475569; margin-bottom: 8px;'>현황: {status_tag}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='font-size: 0.8rem; color: #475569; margin-bottom: 8px;'>최신가: <b>${sel_curr_price:,.2f}</b></div>", unsafe_allow_html=True)
                     
-                    with st.form("quick_pf_form", border=False):
-                        col_form1, col_form2 = st.columns(2)
-                        with col_form1:
-                            shares_in = st.number_input("수량", min_value=0.0, value=p_shares, step=0.1)
-                        with col_form2:
-                            price_in = st.number_input("평단 ($)", min_value=0.0, value=p_price, step=0.01)
-                        pf_submit = st.form_submit_button("💼 포트폴리오 저장/수정", width="stretch")
-                        if pf_submit:
-                            if shares_in > 0:
-                                # 1. 주문 원장(order_history)에 주문 기입
-                                pos_type = p_pos_type
-                                if not in_portfolio:
-                                    # 신규 진입 시
-                                    action_in = "SELL" if pos_type == "SHORT" else "BUY"
-                                    sh.record_order(sel_ticker, action_in, shares_in, price_in, "대시보드 간편 등록", pos_type)
-                                else:
-                                    # 보유 자산 수량 조정 시
-                                    added = shares_in - p_shares
-                                    if added > 0:
-                                        action_in = "SELL" if pos_type == "SHORT" else "BUY"
-                                        sh.record_order(sel_ticker, action_in, added, price_in, "대시보드 수동 추가매수", pos_type)
-                                    elif added < 0:
-                                        action_in = "BUY" if pos_type == "SHORT" else "SELL"
-                                        sh.record_order(sel_ticker, action_in, abs(added), price_in, "대시보드 수동 일부청산", pos_type)
-                                
-                                # --- Notion 연동 ---
-                                try:
-                                    page_id = nh.get_active_position(sel_ticker)
-                                    if not page_id:
-                                        page_id = nh.create_position_journal(sel_ticker, price_in, "대시보드 간편 등록")
-                                    
-                                    if page_id:
-                                        if not in_portfolio:
-                                            nh.add_order_to_journal(page_id, pos_type, shares_in, price_in, "대시보드 간편 등록")
-                                        else:
-                                            added = shares_in - p_shares
-                                            if added > 0:
-                                                nh.add_order_to_journal(page_id, pos_type, added, price_in, "대시보드 추가매수")
-                                            elif added < 0:
-                                                nh.add_order_to_journal(page_id, pos_type, abs(added), price_in, "대시보드 일부청산")
-                                        
-                                        # 최신 가중평균값 조회
-                                        portfolio_df = sh.get_portfolio()
-                                        match_rows = portfolio_df[portfolio_df['symbol'] == sel_ticker]
-                                        if not match_rows.empty:
-                                            final_shares = float(match_rows.iloc[0]['shares'])
-                                            final_price = float(match_rows.iloc[0]['purchase_price'])
-                                        else:
-                                            final_shares = shares_in
-                                            final_price = price_in
-                                            
-                                        nh.update_position_properties(page_id, avg_price=final_price, shares=final_shares, status="진입중")
-                                except Exception as ne:
-                                    pass
-                                      
-                                get_portfolio_cached.clear()
-                                get_order_history_cached.clear()
-                                get_trading_history_cached.clear()
-                                st.toast(f"💼 {sel_ticker} {shares_in}주 저장 완료!")
-                                st.rerun()
-                            else:
-                                if in_portfolio:
-                                    # --- Notion 연동 ---
-                                    try:
-                                        page_id = nh.get_active_position(sel_ticker)
-                                        if page_id:
-                                            nh.close_position_journal(page_id, return_rate=0.0, return_val=0.0, feedback="대시보드 간편 포트폴리오 삭제")
-                                    except Exception as ne:
-                                        pass
-                                    sh.remove_from_portfolio(sel_ticker)
-                                    get_portfolio_cached.clear()
-                                    get_order_history_cached.clear()
-                                    get_trading_history_cached.clear()
-                                    st.toast(f"💼 {sel_ticker} 포트폴리오에서 삭제됨")
-                                    st.rerun()
+                    c_pf_btns = st.columns(2)
+                    with c_pf_btns[0]:
+                        buy_btn_label = "➕ 추가 진입" if in_portfolio else "🚀 신규 진입"
+                        if st.button(buy_btn_label, use_container_width=True, type="primary", key="ins_pf_buy_btn"):
+                            show_purchase_dialog(sel_ticker, sel_curr_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type)
+                    with c_pf_btns[1]:
+                        if in_portfolio:
+                            if st.button("🗑️ 청산", use_container_width=True, key="ins_pf_sell_btn"):
+                                show_liquidation_dialog(sel_ticker, sel_curr_price, p_shares, p_price, p_pos_type)
+                        else:
+                            st.button("🗑️ 포지션 청산", disabled=True, use_container_width=True, key="ins_pf_sell_dis")
             else:
                 st.markdown('''
                 <div class="inspector-guide-text" style="width: 100% !important; max-width: 100% !important; white-space: normal !important; word-break: break-all !important; overflow-wrap: break-word !important; box-sizing: border-box !important;">
