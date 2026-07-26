@@ -625,7 +625,7 @@ def recalculate_position(symbol, position_type):
     # 3. 노션 동기화
     try:
         import notion_helper as nh
-        page_id = nh.get_active_position(symbol)
+        page_id = nh.get_active_position(symbol, position_type)
         if page_id:
             if shares > 0.0001:
                 nh.update_position_properties(page_id, avg_price=purchase_price, shares=shares, status="진입중")

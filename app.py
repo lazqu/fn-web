@@ -75,7 +75,7 @@ def get_comments_list_cached(ticker):
 
 # --- 2. 공용 다이얼로그 모달 함수 정의 (Rerun 시 자동 닫힘 보장) ---
 
-@st.dialog("🚀 신규 진입 / 추가 매수")
+@st.dialog("🚀 신규 진입 / 추가 진입")
 def show_purchase_dialog(ticker, current_price, in_portfolio, p_shares=0.0, p_price=0.0, p_entry_reason="", p_pos_type="LONG"):
     with st.form("purchase_dialog_form", clear_on_submit=True):
         if not in_portfolio:
@@ -108,12 +108,12 @@ def show_purchase_dialog(ticker, current_price, in_portfolio, p_shares=0.0, p_pr
                         final_shares = p_shares + shares_add
                         final_price = ((p_shares * p_price) + (shares_add * price_add)) / final_shares
                     
-                    page_id = nh.get_active_position(ticker)
+                    page_id = nh.get_active_position(ticker, pos_in)
                     if not page_id:
-                        page_id = nh.create_position_journal(ticker, final_price, reason_in)
+                        page_id = nh.create_position_journal(ticker, final_price, reason_in, pos_in)
                     
                     if page_id:
-                        nh.add_order_to_journal(page_id, pos_in, shares_add, price_add, reason_in)
+                        nh.add_order_to_journal(page_id, "진입", shares_add, price_add, reason_in)
                         nh.update_position_properties(page_id, avg_price=final_price, shares=final_shares, status="진입중")
                 except Exception as ne:
                     st.warning(f"노션 저널 연동 실패: {ne}")
@@ -141,10 +141,9 @@ def show_liquidation_dialog(ticker, current_price, p_shares, p_price, p_pos_type
                 
                 # --- Notion 연동 ---
                 try:
-                    page_id = nh.get_active_position(ticker)
+                    page_id = nh.get_active_position(ticker, p_pos_type)
                     if page_id:
-                        notion_action = "LONG" if p_pos_type == "SHORT" else "SHORT"
-                        nh.add_order_to_journal(page_id, notion_action, sell_shares, sell_price, exit_reason)
+                        nh.add_order_to_journal(page_id, "청산", sell_shares, sell_price, exit_reason)
                         
                         if sell_shares >= p_shares:
                             ret_rate = 0.0
@@ -197,27 +196,27 @@ def show_watchlist_alert_dialog(ticker, current_price):
             st.session_state.toast_message = f"🎯 {ticker} 타겟({operator} {target_val}) 설정 완료!"
             st.rerun()
 
-@st.dialog("💼 포트폴리오 등록")
+@st.dialog("🚀 포지션 신규 진입")
 def show_watchlist_pf_dialog(ticker, current_price):
     with st.form("wl_pf_dialog_form", clear_on_submit=True):
-        st.write(f"💼 {ticker} 포트폴리오 자산 등록 (현재가: ${current_price:.2f})")
+        st.write(f"🚀 {ticker} 포지션 진입 (현재가: ${current_price:.2f})")
         pos_in = st.selectbox("포지션", ["LONG", "SHORT"], key="dlg_wl_pos_sel")
-        shares_in = st.number_input("매수 수량 (주)", min_value=0.0, value=10.0, step=1.0, key="dlg_wl_shares")
-        price_in = st.number_input("평균 매수가 ($)", min_value=0.0, value=current_price, step=0.01, key="dlg_wl_price")
-        reason_in = st.text_area("매수 사유", value="", height=80, key="dlg_wl_reason")
+        shares_in = st.number_input("진입 수량 (주)", min_value=0.0, value=10.0, step=1.0, key="dlg_wl_shares")
+        price_in = st.number_input("진입 단가 ($)", min_value=0.0, value=current_price, step=0.01, key="dlg_wl_price")
+        reason_in = st.text_area("진입 사유", value="", height=80, key="dlg_wl_reason")
         
-        pf_add_submit = st.form_submit_button("포트폴리오에 자산 추가")
+        pf_add_submit = st.form_submit_button("포지션 진입 실행")
         if pf_add_submit:
             if shares_in > 0:
                 action_in = "SELL" if pos_in == "SHORT" else "BUY"
                 sh.record_order(ticker, action_in, shares_in, price_in, reason_in, pos_in)
                 
                 try:
-                    page_id = nh.get_active_position(ticker)
+                    page_id = nh.get_active_position(ticker, pos_in)
                     if not page_id:
-                        page_id = nh.create_position_journal(ticker, price_in, reason_in)
+                        page_id = nh.create_position_journal(ticker, price_in, reason_in, pos_in)
                     if page_id:
-                        nh.add_order_to_journal(page_id, pos_in, shares_in, price_in, reason_in)
+                        nh.add_order_to_journal(page_id, "진입", shares_in, price_in, reason_in)
                         nh.update_position_properties(page_id, avg_price=price_in, shares=shares_in, status="진입중")
                 except Exception as ne:
                     pass
@@ -225,7 +224,7 @@ def show_watchlist_pf_dialog(ticker, current_price):
                 get_portfolio_cached.clear()
                 get_order_history_cached.clear()
                 get_trading_history_cached.clear()
-                st.session_state.toast_message = f"💼 {ticker} 포트폴리오 등록 완료!"
+                st.session_state.toast_message = f"🚀 {ticker} 포지션 진입 완료!"
                 st.rerun()
             else:
                 st.error("수량을 0보다 크게 입력해주세요.")
@@ -239,7 +238,7 @@ def get_alert_prices_cached(tickers_to_check):
     return yf.download(tickers_to_check, period="1d", interval="1m", progress=False)
 
 
-def render_order_history_panel(ticker, pos_type):
+def render_order_history_panel(ticker, pos_type, position_id):
     try:
         # sheets_helper 내부의 sh.worksheet 호출
         ws_ord = sh.get_sh().worksheet("order_history")
@@ -255,8 +254,14 @@ def render_order_history_panel(ticker, pos_type):
     df_ord["row_num"] = df_ord.index + 2  # 헤더가 1행이므로 데이터 첫 행은 index 0 -> row_num 2
     df_ord["symbol"] = df_ord["symbol"].astype(str).str.strip().str.upper()
     df_ord["position_type"] = df_ord["position_type"].fillna("LONG").astype(str).str.strip().str.upper()
+    df_ord["position_id"] = df_ord["position_id"].fillna("").astype(str).str.strip()
     
-    df_match = df_ord[(df_ord["symbol"] == ticker.upper()) & (df_ord["position_type"] == pos_type.upper())].copy()
+    # 동일한 position_id를 가진 주문 기록만 필터링
+    df_match = df_ord[
+        (df_ord["symbol"] == ticker.upper()) & 
+        (df_ord["position_type"] == pos_type.upper()) &
+        (df_ord["position_id"] == str(position_id).strip())
+    ].copy()
     
     if df_match.empty:
         return
@@ -277,9 +282,12 @@ def render_order_history_panel(ticker, pos_type):
             # 날짜 포맷 축소 (YYYY-MM-DD HH:MM:SS -> MM-DD HH:MM)
             date_display = str(date_str)[5:16] if len(str(date_str)) >= 16 else str(date_str)
             
-            # 포지션 타입에 따른 진입/청산 뱃지 매핑
+            # 포지션 타입에 따른 진입/청산 뱃지 및 색상 매핑 (SHORT 진입/청산 색상 반전)
             is_entry = (pos_type.upper() == "LONG" and action == "BUY") or (pos_type.upper() == "SHORT" and action == "SELL")
-            badge = "🟢 [진입]" if is_entry else "🔴 [청산]"
+            if pos_type.upper() == "LONG":
+                badge = "🟢 [LONG 진입]" if is_entry else "🔴 [LONG 청산]"
+            else:
+                badge = "🔴 [SHORT 진입]" if is_entry else "🟢 [SHORT 청산]"
             
             c1, c2, c3 = st.columns([2.5, 7.0, 2.5])
             with c1:
@@ -293,9 +301,9 @@ def render_order_history_panel(ticker, pos_type):
                 if st.button("🗑️ 삭제", key=f"btn_del_ord_{r_num}", use_container_width=True):
                     if sh.remove_order_by_row(ticker, pos_type, r_num):
                         try:
-                            page_id = nh.get_active_position(ticker)
+                            page_id = nh.get_active_position(ticker, pos_type)
                             if page_id:
-                                nh.add_order_to_journal(page_id, "CANCEL", shares, price, f"체결 오기입 주문 삭제 (행 번호 {r_num})")
+                                nh.add_order_to_journal(page_id, "취소", shares, price, f"체결 오기입 주문 삭제 (행 번호 {r_num})")
                         except Exception:
                             pass
                         get_portfolio_cached.clear()
@@ -1148,7 +1156,7 @@ if st.session_state.menu == "📊 개별 종목 분석":
                 else:
                     st.button("🗑️ 전체 삭제", width="stretch", disabled=True, key="al_del_btn_dis")
 
-        # 3. 포트폴리오 관리 (정수 단위 step=1.0 및 추가매수/청산 분할 지원)
+        # 3. 포트폴리오 관리 (정수 단위 step=1.0 및 추가 진입/청산 분할 지원)
         with col_pf:
             st.markdown("##### 💼 포트폴리오 관리")
             portfolio_df = get_portfolio_cached()
@@ -1181,7 +1189,8 @@ if st.session_state.menu == "📊 개별 종목 분석":
 
             # 보유 중일 때 최근 체결 이력 취소 관리 패널 출력 (오기 정정용)
             if in_portfolio:
-                render_order_history_panel(ticker, p_pos_type)
+                p_pos_id = str(p_row.get("position_id", "")).strip() if "position_id" in p_row else ""
+                render_order_history_panel(ticker, p_pos_type, p_pos_id)
 
     render_integrated_action_panel(ticker, current_price)
 
@@ -1256,7 +1265,7 @@ if st.session_state.menu == "📊 개별 종목 분석":
     
     # 기본값을 비워두어 새로운 코멘트 작성을 용이하게 하고, 세션 키를 지정하여 등록 완료 시 초기화가 가능하도록 함
     comment_in = st.text_area(
-        "이 종목에 대한 분석이나 매수 근거 등의 기록을 남겨보세요.", 
+        "이 종목에 대한 분석이나 진입 근거 등의 기록을 남겨보세요.", 
         value="", 
         height=120, 
         key="quick_comment_input"
@@ -1938,6 +1947,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     sel_price = float(sel_row['purchase_price'])
                     sel_reason = str(sel_row['entry_reason']) if pd.notna(sel_row['entry_reason']) else ""
                     sel_pos = str(sel_row.get('position_type', 'LONG')).upper()
+                    sel_pos_id = str(sel_row.get('position_id', '')).strip()
                     
                     # 상세 카드 연산용
                     curr_price = close_prices.get(sel_ticker, 0.0)
@@ -1978,16 +1988,16 @@ elif st.session_state.menu == "💼 내 투자 관리":
                         st.session_state.menu = "📊 개별 종목 분석"
                         st.rerun()
                 with c_act2:
-                    if st.button("➕ 포지션 추가 매수", use_container_width=True, type="primary", key="pf_tab_buy_btn"):
+                    if st.button("➕ 포지션 추가 진입", use_container_width=True, type="primary", key="pf_tab_buy_btn"):
                         show_purchase_dialog(sel_ticker, curr_price, True, sel_shares, sel_price, sel_reason, sel_pos)
                 with c_act3:
-                    if st.button("🗑️ 포지션 청산 (매도)", use_container_width=True, key="pf_tab_sell_btn"):
+                    if st.button("🗑️ 포지션 청산", use_container_width=True, key="pf_tab_sell_btn"):
                         show_liquidation_dialog(sel_ticker, curr_price, sel_shares, sel_price, sel_pos)
                     
                 # 보유 중일 때 최근 체결 이력 취소 관리 패널 출력 (오기 정정용 - columns 블록 바깥으로 아웃덴트)
-                render_order_history_panel(sel_ticker, sel_pos)
+                render_order_history_panel(sel_ticker, sel_pos, sel_pos_id)
             else:
-                st.info("💡 위의 포트폴리오 표에서 자산 행을 클릭하시면 즉시 상세 차트 분석 이동 및 추가 매수/청산 처리를 할 수 있는 제어 패널이 나타납니다.")
+                st.info("💡 위의 포트폴리오 표에서 자산 행을 클릭하시면 즉시 상세 차트 분석 이동 및 추가 진입/청산 처리를 할 수 있는 제어 패널이 나타납니다.")
 
     # ------------------ Tab 2: 관심 종목 & 그룹 ------------------
     with tab_wl:
@@ -2101,7 +2111,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
                         show_watchlist_alert_dialog(sel_ticker, curr_price)
                         
                 with c_wl_act3:
-                    if st.button("💼 포트폴리오 등록 (매수)", use_container_width=True, key="wl_tab_pf_btn"):
+                    if st.button("🚀 포지션 진입", use_container_width=True, key="wl_tab_pf_btn"):
                         show_watchlist_pf_dialog(sel_ticker, curr_price)
                         
                 with c_wl_act4:
@@ -2132,7 +2142,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
                             else:
                                 st.error("그룹 이름을 입력해 주세요.")
             else:
-                st.info("💡 위의 관심 종목 표에서 종목 행을 클릭하시면 차트 이동, 알림 등록, 자산 매수(포폴 등록), 관심 해제 등의 단축 연동 제어가 가능합니다.")
+                st.info("💡 위의 관심 종목 표에서 종목 행을 클릭하시면 차트 이동, 알림 등록, 자산 진입(포폴 등록), 관심 해제 등의 단축 연동 제어가 가능합니다.")
 
 
 
@@ -2391,7 +2401,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     st.subheader(f"🔍 포지션 거래 이력 상세 타임라인: {sel_ticker} ({sel_pos})")
                     
                     # 노션 링크 조회 및 노출
-                    closed_page_id = nh.get_closed_position_page_id(sel_ticker, sel_created)
+                    closed_page_id = nh.get_closed_position_page_id(sel_ticker, sel_created, sel_pos)
                     if closed_page_id:
                         notion_page_uuid = closed_page_id.replace("-", "")
                         st.link_button(
@@ -2421,7 +2431,8 @@ elif st.session_state.menu == "💼 내 투자 관리":
                         o_memo = r['memo']
                         
                         if o_type == 'ENTRY':
-                            expander_title = f"🟢 [진입] 📅 {o_date} | 수량 {o_shares:,.1f}주 (@${o_price:,.2f})"
+                            emoji = "🟢" if sel_pos.upper() == "LONG" else "🔴"
+                            expander_title = f"{emoji} [{sel_pos.upper()} 진입] 📅 {o_date} | 수량 {o_shares:,.1f}주 (@${o_price:,.2f})"
                             with st.expander(expander_title, expanded=False):
                                 c1, c2 = st.columns(2)
                                 with c1:
@@ -2431,7 +2442,8 @@ elif st.session_state.menu == "💼 내 투자 관리":
                                 if o_memo:
                                     st.info(f"💬 **진입 근거 (메모)**: {o_memo}")
                         else:
-                            expander_title = f"🔴 [청산] 📅 {o_date} | 청산 {o_shares:,.1f}주 (@${o_price:,.2f})"
+                            emoji = "🔴" if sel_pos.upper() == "LONG" else "🟢"
+                            expander_title = f"{emoji} [{sel_pos.upper()} 청산] 📅 {o_date} | 청산 {o_shares:,.1f}주 (@${o_price:,.2f})"
                             with st.expander(expander_title, expanded=False):
                                 c1, c2 = st.columns(2)
                                 with c1:
@@ -2441,6 +2453,6 @@ elif st.session_state.menu == "💼 내 투자 관리":
                                 if o_memo:
                                     st.info(f"🏁 **청산 사유**: {o_memo}")
             else:
-                st.info("💡 위의 표에서 청산 완료된 포지션 행을 클릭하시면, 하단에 상세 분할 매도 이력과 노션 투자 저널 바로가기 링크가 출력됩니다.")
+                st.info("💡 위의 표에서 청산 완료된 포지션 행을 클릭하시면, 하단에 상세 매매 이력과 노션 투자 저널 바로가기 링크가 출력됩니다.")
 
 
