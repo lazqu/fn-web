@@ -961,29 +961,23 @@ if st.session_state.menu == "📊 개별 종목 분석":
         else:
             st.caption("현재 미보유 상태입니다.")
 
-        with st.popover("💼 포지션 추가 매수 / 청산", width="stretch"):
-            tab_buy, tab_sell = st.tabs(["➕ 포지션 추가 매수", "🗑️ 포지션 청산 (매도)"])
-            
-            with tab_buy:
+        c_pf_btns = st.columns(2)
+        with c_pf_btns[0]:
+            buy_btn_label = "➕ 추가 진입" if in_portfolio else "🚀 신규 진입"
+            with st.popover(buy_btn_label, use_container_width=True):
                 with st.form("pf_edit_form", clear_on_submit=False):
-                    pos_in = st.selectbox("포지션 구분", ["LONG", "SHORT"], index=0 if p_pos_type == "LONG" else 1, key="quick_pf_pos")
+                    if not in_portfolio:
+                        pos_in = st.selectbox("포지션 구분", ["LONG", "SHORT"], index=0, key="quick_pf_pos")
+                    else:
+                        pos_in = p_pos_type
                     
-                    st.info(f"💡 현재 보유: {p_shares}주 (평단 ${p_price:.2f}) ➡️ 추가 매수 수량과 단가를 입력하시면 가중평균이 자동 연산됩니다.")
-                    shares_add = st.number_input("추가 매수 수량 (주)", min_value=0.0, value=0.0, step=1.0, key="quick_pf_shares_add")
-                    price_add = st.number_input("추가 매수 단가 ($)", min_value=0.0, value=current_price, step=0.01, key="quick_pf_price_add")
-                    
-                    st.markdown("**📊 전략 및 정성적 피드백 태그 (Notion 연동)**")
-                    col_tag1, col_tag2 = st.columns(2)
-                    with col_tag1:
-                        market_regime = st.selectbox("시장 환경", ["강세장(상승)", "약세장(하락)", "박스권(횡보)", "변동성 장세"], key="quick_pf_market")
-                    with col_tag2:
-                        emotion_in = st.multiselect("진입 심리 상태", ["차분함", "조급함", "FOMO", "복수매매", "확증편향", "탐욕"], default=["차분함"], key="quick_pf_emotion")
+                    shares_add = st.number_input("진입 수량 (주)", min_value=0.0, value=0.0, step=1.0, key="quick_pf_shares_add")
+                    price_add = st.number_input("진입 단가 ($)", min_value=0.0, value=current_price, step=0.01, key="quick_pf_price_add")
                     
                     reason_in = st.text_area("상세 진입 근거 및 메모", value=p_entry_reason, height=80, key="quick_pf_reason")
-                    pf_submit = st.form_submit_button("추가 매수 실행", width="stretch")
+                    pf_submit = st.form_submit_button("진입 실행", width="stretch")
                     if pf_submit:
                         if shares_add > 0:
-                            # LONG의 추가매수는 BUY, SHORT의 추가매수는 SELL
                             action_in = "SELL" if pos_in == "SHORT" else "BUY"
                             
                             # 1. 주문 원장(order_history)에 주문 기입 (백엔드 recalculate_position 자동 트리거)
@@ -991,7 +985,6 @@ if st.session_state.menu == "📊 개별 종목 분석":
                             
                             # 2. Notion 연동 (백엔드가 갱신한 최신 잔고를 동기화)
                             try:
-                                # 캐시 우회하여 최신 구글 시트 데이터 로드
                                 portfolio_df = sh.get_portfolio()
                                 match_rows = portfolio_df[portfolio_df['symbol'] == ticker]
                                 if not match_rows.empty:
@@ -1009,60 +1002,64 @@ if st.session_state.menu == "📊 개별 종목 분석":
                                 if page_id:
                                     nh.add_order_to_journal(page_id, pos_in, shares_add, price_add, reason_in)
                                     nh.update_position_properties(
-                                        page_id, avg_price=final_price, shares=final_shares, status="진입중",
-                                        market_regime=market_regime, emotion=emotion_in
+                                        page_id, avg_price=final_price, shares=final_shares, status="진입중"
                                     )
                             except Exception as ne:
                                 st.warning(f"노션 저널 연동 실패: {ne}")
                                 
                             st.cache_data.clear()
-                            st.success("포지션 추가 매수가 정상 완료되었습니다.")
+                            st.success("포지션 진입이 완료되었습니다.")
                             st.rerun()
                         else:
-                            st.warning("추가 매수 수량을 0보다 크게 입력해주세요.")
+                            st.warning("수량을 0보다 크게 입력해주세요.")
                             st.stop()
                                 
-            with tab_sell:
-                if in_portfolio:
-                      with st.form("pf_liq_form", clear_on_submit=False):
-                          sell_shares = st.number_input("청산할 수량 (주)", min_value=0.0, max_value=p_shares, value=p_shares, step=1.0, key="quick_pf_sell_shares")
-                          sell_price = st.number_input("매도 청산 단가 ($)", min_value=0.0, value=current_price, step=0.01, key="quick_pf_sell_price")
-                          
-                          st.markdown("**🏁 원칙 평가 및 복기 태그 (Notion 연동)**")
-                          adherence = st.selectbox("원칙 준수 여부", ["원칙 준수", "조기 익절", "뇌동 매매", "물타기 실수", "손절선 미준수"], key="quick_pf_adherence")
-                          
-                          exit_reason = st.text_area("청산 사유", value="", height=80, key="quick_pf_exit_reason")
-                          liq_submit = st.form_submit_button("청산 실행 (매도 완료)", width="stretch")
-                          if liq_submit:
-                              if sell_shares > 0:
-                                  sh.liquidate_portfolio(ticker, sell_shares, sell_price, exit_reason)
-                                  
-                                  # --- Notion 연동 ---
-                                  try:
-                                      page_id = nh.get_active_position(ticker)
-                                      if page_id:
-                                          # 매도 거래 내역을 노션 본문에 추가
-                                          nh.add_order_to_journal(page_id, "SHORT", sell_shares, sell_price, exit_reason)
-                                          
-                                          if sell_shares >= p_shares:
-                                              # 완청 처리
-                                              ret_rate = 0.0
-                                              if p_price > 0:
-                                                  ret_rate = ((sell_price - p_price) / p_price) * 100
-                                              ret_val = (sell_price - p_price) * sell_shares
-                                              
-                                              nh.close_position_journal(page_id, return_rate=ret_rate, return_val=ret_val, feedback=exit_reason, adherence=adherence)
-                                          else:
-                                              # 일부 청산
-                                              nh.update_position_properties(page_id, avg_price=p_price, shares=(p_shares - sell_shares), status="진입중")
-                                  except Exception as ne:
-                                      st.warning(f"노션 저널 청산 연동 실패: {ne}")
-                                      
-                                  st.cache_data.clear()
-                                  st.success(f"{ticker} 포지션 {sell_shares}주 청산 완료!")
-                                  st.rerun()
-                else:
-                    st.info("현재 보유 중인 포지션이 없어 청산할 수 없습니다.")
+        with c_pf_btns[1]:
+            if in_portfolio:
+                with st.popover("🗑️ 청산", use_container_width=True):
+                    with st.form("pf_liq_form", clear_on_submit=False):
+                        sell_shares = st.number_input("청산할 수량 (주)", min_value=0.0, max_value=p_shares, value=p_shares, step=1.0, key="quick_pf_sell_shares")
+                        sell_price = st.number_input("청산 단가 ($)", min_value=0.0, value=current_price, step=0.01, key="quick_pf_sell_price")
+                        
+                        exit_reason = st.text_area("청산 사유", value="", height=80, key="quick_pf_exit_reason")
+                        liq_submit = st.form_submit_button("청산 실행", width="stretch")
+                        if liq_submit:
+                            if sell_shares > 0:
+                                sh.liquidate_portfolio(ticker, sell_shares, sell_price, exit_reason)
+                                
+                                # --- Notion 연동 ---
+                                try:
+                                    page_id = nh.get_active_position(ticker)
+                                    if page_id:
+                                        # 숏 포지션 청산은 매수(LONG/BUY), 롱 포지션 청산은 매도(SHORT/SELL)로 변환하여 Notion 저널 본문에 기입
+                                        notion_action = "LONG" if p_pos_type == "SHORT" else "SHORT"
+                                        nh.add_order_to_journal(page_id, notion_action, sell_shares, sell_price, exit_reason)
+                                        
+                                        if sell_shares >= p_shares:
+                                            # 완청 처리 (SHORT 포지션 연산 버그 정정)
+                                            ret_rate = 0.0
+                                            if p_price > 0:
+                                                if p_pos_type == "SHORT":
+                                                    ret_rate = ((p_price - sell_price) / p_price) * 100
+                                                    ret_val = (p_price - sell_price) * sell_shares
+                                                else:
+                                                    ret_rate = ((sell_price - p_price) / p_price) * 100
+                                                    ret_val = (sell_price - p_price) * sell_shares
+                                            else:
+                                                ret_val = 0.0
+                                            
+                                            nh.close_position_journal(page_id, return_rate=ret_rate, return_val=ret_val, feedback=exit_reason)
+                                        else:
+                                            # 일부 청산
+                                            nh.update_position_properties(page_id, avg_price=p_price, shares=(p_shares - sell_shares), status="진입중")
+                                except Exception as ne:
+                                    st.warning(f"노션 저널 청산 연동 실패: {ne}")
+                                    
+                                st.cache_data.clear()
+                                st.success(f"{ticker} 포지션 {sell_shares}주 청산 완료!")
+                                st.rerun()
+            else:
+                st.button("🗑️ 포지션 청산", disabled=True, use_container_width=True, key="quick_pf_sell_dis")
 
         # 보유 중일 때 최근 체결 이력 취소 관리 패널 출력 (오기 정정용)
         if in_portfolio:
