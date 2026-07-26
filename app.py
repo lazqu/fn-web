@@ -1851,21 +1851,17 @@ elif st.session_state.menu == "💼 내 투자 관리":
                 with c_act2:
                     with st.popover("➕ 포지션 추가 매수", use_container_width=True):
                         with st.form("pf_tab_buy_form", clear_on_submit=True):
-                            pos_in = st.selectbox("포지션 구분", ["LONG", "SHORT"], index=0 if sel_pos == "LONG" else 1, key="pf_tab_pos_sel")
-                            
-                            st.info(f"💡 현재 보유: {sel_shares}주 (평단 ${sel_price:.2f}) ➡️ 추가 매수 수량과 단가를 입력하시면 가중평균이 자동 계산됩니다.")
                             shares_add = st.number_input("추가 매수 수량 (주)", min_value=0.0, value=0.0, step=1.0, key="pf_tab_shares_add")
                             price_add = st.number_input("추가 매수 단가 ($)", min_value=0.0, value=close_prices.get(sel_ticker, sel_price), step=0.01, key="pf_tab_price_add")
-                            
-                            reason_in = st.text_area("메모 / 진입 근거", value=sel_reason, height=80)
+                            reason_in = st.text_area("추가 매수 사유 / 기록", value="", height=80)
                             buy_submit = st.form_submit_button("추가 매수 실행", width="stretch")
                             
                             if buy_submit:
                                 if shares_add > 0:
-                                    action_in = "SELL" if pos_in == "SHORT" else "BUY"
+                                    action_in = "SELL" if sel_pos == "SHORT" else "BUY"
                                     
                                     # 1. 주문 원장(order_history)에 주문 기입 (백엔드 recalculate_position 자동 트리거)
-                                    sh.record_order(sel_ticker, action_in, shares_add, price_add, reason_in, pos_in)
+                                    sh.record_order(sel_ticker, action_in, shares_add, price_add, reason_in, sel_pos)
                                     
                                     # 2. Notion 연동 (백엔드가 갱신한 최신 잔고를 동기화)
                                     try:
@@ -1884,7 +1880,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
                                             page_id = nh.create_position_journal(sel_ticker, final_price, reason_in)
                                         
                                         if page_id:
-                                            nh.add_order_to_journal(page_id, pos_in, shares_add, price_add, reason_in)
+                                            nh.add_order_to_journal(page_id, sel_pos, shares_add, price_add, reason_in)
                                             nh.update_position_properties(page_id, avg_price=final_price, shares=final_shares, status="진입중")
                                     except Exception as ne:
                                         pass
@@ -2002,9 +1998,20 @@ elif st.session_state.menu == "💼 내 투자 관리":
                     sel_group = wl_table_df.iloc[selected_idx]['관심 그룹']
                     
                     st.subheader(f"⚙️ 선택된 관심종목 제어: {sel_ticker}")
-                    wl_comment = get_comment_cached(sel_ticker)
-                    if wl_comment:
-                        st.info(f"💬 **관심 종목 코멘트**: {wl_comment}")
+                    
+                    comments_list = get_comments_list_cached(sel_ticker)
+                    if comments_list:
+                        if len(comments_list) == 1:
+                            # 코멘트가 1개인 경우 심플하게 정보 박스로 노출
+                            st.info(f"💬 **관심 종목 코멘트**: {comments_list[0]['content']}")
+                        else:
+                            # 코멘트가 여러 개인 경우 전체 리스트를 단 하나의 아코디언으로 감싸서 콤팩트하게 렌더링
+                            with st.expander(f"💬 전체 코멘트 이력 ({len(comments_list)}개)", expanded=False):
+                                for idx, c_item in enumerate(comments_list):
+                                    c_date = c_item['created_at'][:16] if len(c_item['created_at']) >= 16 else c_item['created_at']
+                                    st.markdown(f"**📅 {c_date}**  \n{c_item['content']}")
+                                    if idx < len(comments_list) - 1:
+                                        st.markdown("---")
                 
                 c_wl_act1, c_wl_act2, c_wl_act3, c_wl_act4 = st.columns(4)
                 
@@ -2384,7 +2391,7 @@ elif st.session_state.menu == "💼 내 투자 관리":
                         with col_h1:
                             st.markdown(f"**거래 기간**: `{sel_date_range}`  \n**진입 단가**: `${sel_entry_p:,.2f}`  \n**평균 청산가**: `${sel_exit_p:,.2f}`")
                         with col_h2:
-                            st.markdown(f"**총 청산 수량**: `{sel_shares:,.1f}주`  \n**누적 실현손익**: `${sel_profit:+,.2f}`  \n**최종 수익률**: `{sel_profit_pct:+.2f}%`")
+                            st.markdown(f"**총 청산 수량**: `{sel_shares:,.1f}주`  \n**누적 실현손익**: `${sel_profit:+,.2f}`  \n**실현 수익률**: `{sel_profit_pct:+.2f}%`")
                             
                     st.markdown("⛓️ **상세 체결 타임라인 (주문 DB 기록)**")
                     
