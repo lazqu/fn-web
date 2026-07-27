@@ -3,7 +3,174 @@ import pandas as pd
 import yfinance as yf
 import sheets_helper as sh
 import components.cache as cache
-import components.dialogs as dlg
+import components.forms as fm
+
+def conditional_fragment(func):
+    if hasattr(st, "fragment"):
+        return st.fragment()(func)
+    return func
+
+@conditional_fragment
+def render_inspector_panel(selected_stock):
+    if "list_active_form" not in st.session_state:
+        st.session_state.list_active_form = None
+    if "list_prev_ticker" not in st.session_state:
+        st.session_state.list_prev_ticker = selected_stock["티커"]
+
+    sel_ticker = selected_stock["티커"]
+    
+    # 선택된 종목이 변경되면 열려있던 입력 폼을 닫음
+    if st.session_state.list_prev_ticker != sel_ticker:
+        st.session_state.list_prev_ticker = sel_ticker
+        st.session_state.list_active_form = None
+
+    sel_name = selected_stock["회사명"]
+    sel_group_full = selected_stock["group_full"] if "group_full" in selected_stock else selected_stock["그룹"]
+    sel_groups = [g.strip() for g in str(sel_group_full).split(",") if g.strip()]
+
+    BADGE_STYLES = {
+        "SCHD": "background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;",
+        "VIG": "background-color: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff;",
+        "DGRO": "background-color: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;",
+        "S&P": "background-color: #ffedd5; color: #9a3412; border: 1px solid #fed7aa;",
+        "Nasdaq": "background-color: #f1f5f9; color: #334155; border: 1px solid #e2e8f0;"
+    }
+
+    badge_htmls = []
+    for g in sel_groups:
+        style = BADGE_STYLES.get(g, "background-color: #f1f5f9; color: #334155; border: 1px solid #e2e8f0;")
+        badge_htmls.append(f'<span style="{style} padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; margin-right: 4px; margin-bottom: 4px; display: inline-block;">{g}</span>')
+    badges_combined = "".join(badge_htmls)
+
+    sel_market_cap = selected_stock["시가총액"]
+    sel_yield = selected_stock["배당률"]
+
+    portfolio_df = cache.get_portfolio_cached()
+    in_portfolio = sel_ticker in portfolio_df['symbol'].values
+    p_shares = 0.0
+    p_price = 0.0
+    p_entry_reason = ""
+    p_pos_type = "LONG"
+    
+    if in_portfolio:
+        p_row = portfolio_df[portfolio_df['symbol'] == sel_ticker].iloc[0]
+        p_shares = float(p_row['shares'])
+        p_price = float(p_row['purchase_price'])
+        p_entry_reason = str(p_row['entry_reason']) if pd.notna(p_row['entry_reason']) else ""
+        p_pos_type = str(p_row.get('position_type', 'LONG')).upper()
+
+    try:
+        price_data = yf.download(sel_ticker, period="1d", progress=False)
+        if not price_data.empty:
+            sel_curr_price = float(price_data['Close'].squeeze().iloc[-1])
+        else:
+            sel_curr_price = p_price if p_price > 0 else 0.0
+    except Exception:
+        sel_curr_price = p_price if p_price > 0 else 0.0
+
+    c_ins1, c_ins2, c_ins3 = st.columns([1, 1, 1])
+    
+    with c_ins1:
+        st.caption("🏷️ 종목 요약 프로필")
+        st.markdown(f"""
+        <div style="text-align: left; padding: 0; margin: 0;">
+            <h3 style="margin: 0; padding: 0; color: #0f172a; font-weight: 800; font-size: 1.5rem; letter-spacing: -0.01em; line-height: 1.1;">{sel_ticker}</h3>
+            <p style="margin: 5px 0 6px 0; font-size: 0.8rem; font-weight: 500; color: #475569; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 32px; line-height: 1.25;">{sel_name}</p>
+            <div style="font-size: 0.72rem; font-weight: 600; color: #64748b; margin-bottom: 2px;">🏛️ 시가총액: <span style="color: #0f172a; font-weight: 700;">{sel_market_cap}</span></div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: #64748b; margin-bottom: 8px;">💰 배당수익률: <span style="color: #16a34a; font-weight: 700;">{sel_yield}</span></div>
+            <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 0; padding: 0;">
+                {badges_combined}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+        
+    with c_ins2:
+        st.caption("📝 신속 제어 및 분석")
+        st.markdown("<div style='padding-top: 5px;'></div>", unsafe_allow_html=True)
+        
+        if st.button("📊 상세 차트 분석 이동", width="stretch", type="primary", key=f"ins_goto_chart_{sel_ticker}"):
+            st.session_state.ticker = sel_ticker
+            st.session_state.menu = "📊 개별 종목 분석"
+            st.cache_data.clear()
+            st.rerun()
+        
+        st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
+        wl_details = cache.get_watchlist_details_cached()
+        my_groups = wl_details[wl_details['symbol'] == sel_ticker]['group_name'].tolist() if not wl_details.empty else []
+        
+        if my_groups:
+            st.markdown(f"⭐ **소속 그룹**: " + ", ".join([f"`{g}`" for g in my_groups]))
+        else:
+            st.caption("현재 관심 종목에 등록되어 있지 않습니다.")
+            
+        all_groups = sorted(wl_details['group_name'].dropna().unique().tolist()) if not wl_details.empty else []
+        if "기본 그룹" not in all_groups:
+            all_groups.insert(0, "기본 그룹")
+            
+        group_sel = st.selectbox("추가할 관심 그룹 선택", all_groups + ["+ 새 그룹 추가..."], key=f"ins_wl_group_sel_{sel_ticker}")
+        if group_sel == "+ 새 그룹 추가...":
+            new_group = st.text_input("새 그룹명 입력", "", key=f"ins_wl_new_group_text_{sel_ticker}").strip()
+            group_to_save = new_group
+        else:
+            group_to_save = group_sel
+
+        c_wl_btn1, c_wl_btn2 = st.columns(2)
+        with c_wl_btn1:
+            if st.button("⭐ 관심 추가", width="stretch", key=f"ins_wl_save_btn_{sel_ticker}", type="primary"):
+                if group_sel == "+ 새 그룹 추가..." and not group_to_save:
+                    st.error("그룹명을 입력해주세요.")
+                elif group_to_save in my_groups:
+                    st.warning("⚠️ 이미 해당 그룹에 존재합니다.")
+                else:
+                    sh.add_to_watchlist(sel_ticker, group_to_save)
+                    cache.get_watchlist_cached.clear()
+                    cache.get_watchlist_details_cached.clear()
+                    st.success(f"관심 그룹 '{group_to_save}'에 추가 완료!")
+                    st.rerun()
+        with c_wl_btn2:
+            if my_groups:
+                del_group_sel = st.selectbox("제거할 그룹 선택", my_groups, key=f"ins_wl_del_group_sel_{sel_ticker}")
+                if st.button("🗑️ 그룹 해제", width="stretch", key=f"ins_wl_del_btn_{sel_ticker}"):
+                    sh.remove_from_watchlist(sel_ticker, del_group_sel)
+                    cache.get_watchlist_cached.clear()
+                    cache.get_watchlist_details_cached.clear()
+                    st.success(f"'{del_group_sel}' 그룹에서 해제 완료!")
+                    st.rerun()
+            else:
+                st.button("🗑️ 그룹 해제", width="stretch", disabled=True, key=f"ins_wl_del_btn_dis_{sel_ticker}")
+                
+    with c_ins3:
+        st.caption("💼 포트폴리오 자산 관리")
+        
+        if in_portfolio:
+            status_tag = f"<span style='font-size:0.75rem;color:#059669;font-weight:700;'>(보유: {p_shares}주 @${p_price:.2f}, {p_pos_type})</span>"
+        else:
+            status_tag = "<span style='font-size:0.75rem;color:#64748b;font-weight:700;'>(미보유)</span>"
+        
+        st.markdown(f"<div style='font-size: 0.8rem; color: #475569; margin-bottom: 8px;'>현황: {status_tag}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='font-size: 0.8rem; color: #475569; margin-bottom: 8px;'>최신가: <b>${sel_curr_price:,.2f}</b></div>", unsafe_allow_html=True)
+        
+        c_pf_btns = st.columns(2)
+        with c_pf_btns[0]:
+            buy_btn_label = "➕ 추가 진입" if in_portfolio else "🚀 신규 진입"
+            if st.button(buy_btn_label, use_container_width=True, type="primary", key=f"ins_pf_buy_btn_{sel_ticker}"):
+                st.session_state.list_active_form = "buy"
+                st.rerun()
+        with c_pf_btns[1]:
+            if in_portfolio:
+                if st.button("🗑️ 청산", use_container_width=True, key=f"ins_pf_sell_btn_{sel_ticker}"):
+                    st.session_state.list_active_form = "sell"
+                    st.rerun()
+            else:
+                st.button("🗑️ 포지션 청산", disabled=True, use_container_width=True, key=f"ins_pf_sell_dis_{sel_ticker}")
+
+    # 상호 배제 인라인 폼 출력
+    if st.session_state.list_active_form == "buy":
+        st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+        fm.render_purchase_inline_form(sel_ticker, sel_curr_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type, state_key="list_active_form")
+    elif st.session_state.list_active_form == "sell" and in_portfolio:
+        st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+        fm.render_liquidation_inline_form(sel_ticker, sel_curr_price, p_shares, p_price, p_pos_type, state_key="list_active_form")
 
 def render_page():
     with st.spinner("종목 리스트 불러오는 중..."):
@@ -180,151 +347,8 @@ def render_page():
             st.markdown('<span class="inspector-marker" style="display:none;">m</span>', unsafe_allow_html=True)
             if not selected_rows.empty:
                 st.markdown("<h4 style='font-size: 1.05rem; font-weight: 700; margin: 0 0 10px 0; color: #1e3a8a;'>🔍 선택 종목 상세 제어 패널 (Inspector)</h4>", unsafe_allow_html=True)
-                
                 selected_stock = selected_rows.iloc[-1]
-                sel_ticker = selected_stock["티커"]
-                sel_name = selected_stock["회사명"]
-                
-                sel_group_full = selected_stock["group_full"] if "group_full" in selected_stock else selected_stock["그룹"]
-                sel_groups = [g.strip() for g in str(sel_group_full).split(",") if g.strip()]
-
-                BADGE_STYLES = {
-                    "SCHD": "background-color: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;",
-                    "VIG": "background-color: #f3e8ff; color: #6b21a8; border: 1px solid #e9d5ff;",
-                    "DGRO": "background-color: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0;",
-                    "S&P": "background-color: #ffedd5; color: #9a3412; border: 1px solid #fed7aa;",
-                    "Nasdaq": "background-color: #f1f5f9; color: #334155; border: 1px solid #e2e8f0;"
-                }
-
-                badge_htmls = []
-                for g in sel_groups:
-                    style = BADGE_STYLES.get(g, "background-color: #f1f5f9; color: #334155; border: 1px solid #e2e8f0;")
-                    badge_htmls.append(f'<span style="{style} padding: 2px 10px; border-radius: 20px; font-size: 0.68rem; font-weight: 700; margin-right: 4px; margin-bottom: 4px; display: inline-block;">{g}</span>')
-                badges_combined = "".join(badge_htmls)
-
-                sel_market_cap = selected_stock["시가총액"]
-                sel_yield = selected_stock["배당률"]
-
-                portfolio_df = cache.get_portfolio_cached()
-                in_portfolio = sel_ticker in portfolio_df['symbol'].values
-                p_shares = 0.0
-                p_price = 0.0
-                p_entry_reason = ""
-                p_pos_type = "LONG"
-                
-                if in_portfolio:
-                    p_row = portfolio_df[portfolio_df['symbol'] == sel_ticker].iloc[0]
-                    p_shares = float(p_row['shares'])
-                    p_price = float(p_row['purchase_price'])
-                    p_entry_reason = str(p_row['entry_reason']) if pd.notna(p_row['entry_reason']) else ""
-                    p_pos_type = str(p_row.get('position_type', 'LONG')).upper()
-
-                try:
-                    price_data = yf.download(sel_ticker, period="1d", progress=False)
-                    if not price_data.empty:
-                        sel_curr_price = float(price_data['Close'].squeeze().iloc[-1])
-                    else:
-                        sel_curr_price = p_price if p_price > 0 else 0.0
-                except Exception:
-                    sel_curr_price = p_price if p_price > 0 else 0.0
-
-                c_ins1, c_ins2, c_ins3 = st.columns([1, 1, 1])
-                
-                with c_ins1:
-                    st.caption("🏷️ 종목 요약 프로필")
-                    st.markdown(f"""
-                    <div style="text-align: left; padding: 0; margin: 0;">
-                        <h3 style="margin: 0; padding: 0; color: #0f172a; font-weight: 800; font-size: 1.5rem; letter-spacing: -0.01em; line-height: 1.1;">{sel_ticker}</h3>
-                        <p style="margin: 5px 0 6px 0; font-size: 0.8rem; font-weight: 500; color: #475569; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; height: 32px; line-height: 1.25;">{sel_name}</p>
-                        <div style="font-size: 0.72rem; font-weight: 600; color: #64748b; margin-bottom: 2px;">🏛️ 시가총액: <span style="color: #0f172a; font-weight: 700;">{sel_market_cap}</span></div>
-                        <div style="font-size: 0.72rem; font-weight: 600; color: #64748b; margin-bottom: 8px;">💰 배당수익률: <span style="color: #16a34a; font-weight: 700;">{sel_yield}</span></div>
-                        <div style="display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 0; padding: 0;">
-                            {badges_combined}
-                        </div>
-                    </div>
-                    """, unsafe_allow_html=True)
-                    
-                with c_ins2:
-                    st.caption("📝 신속 제어 및 분석")
-                    st.markdown("<div style='padding-top: 5px;'></div>", unsafe_allow_html=True)
-                    
-                    if st.button("📊 상세 차트 분석 이동", width="stretch", type="primary", key="ins_goto_chart"):
-                        st.session_state.ticker = sel_ticker
-                        st.session_state.menu = "📊 개별 종목 분석"
-                        st.cache_data.clear()
-                        st.rerun()
-                    
-                    st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
-                    wl_details = cache.get_watchlist_details_cached()
-                    my_groups = wl_details[wl_details['symbol'] == sel_ticker]['group_name'].tolist() if not wl_details.empty else []
-                    
-                    if my_groups:
-                        st.markdown(f"⭐ **소속 그룹**: " + ", ".join([f"`{g}`" for g in my_groups]))
-                    else:
-                        st.caption("현재 관심 종목에 등록되어 있지 않습니다.")
-                        
-                    all_groups = sorted(wl_details['group_name'].dropna().unique().tolist()) if not wl_details.empty else []
-                    if "기본 그룹" not in all_groups:
-                        all_groups.insert(0, "기본 그룹")
-                        
-                    group_sel = st.selectbox("추가할 관심 그룹 선택", all_groups + ["+ 새 그룹 추가..."], key="ins_wl_group_sel")
-                    if group_sel == "+ 새 그룹 추가...":
-                        new_group = st.text_input("새 그룹명 입력", "", key="ins_wl_new_group_text").strip()
-                        group_to_save = new_group
-                    else:
-                        group_to_save = group_sel
-
-                    c_wl_btn1, c_wl_btn2 = st.columns(2)
-                    with c_wl_btn1:
-                        if st.button("⭐ 관심 추가", width="stretch", key="ins_wl_save_btn", type="primary"):
-                            if group_sel == "+ 새 그룹 추가..." and not group_to_save:
-                                st.error("그룹명을 입력해주세요.")
-                            elif group_to_save in my_groups:
-                                st.warning("⚠️ 이미 해당 그룹에 존재합니다.")
-                            else:
-                                sh.add_to_watchlist(sel_ticker, group_to_save)
-                                if "ins_wl_group_sel" in st.session_state:
-                                    del st.session_state["ins_wl_group_sel"]
-                                if "ins_wl_new_group_text" in st.session_state:
-                                    del st.session_state["ins_wl_new_group_text"]
-                                cache.get_watchlist_cached.clear()
-                                cache.get_watchlist_details_cached.clear()
-                                st.success(f"관심 그룹 '{group_to_save}'에 추가 완료!")
-                                st.rerun()
-                    with c_wl_btn2:
-                        if my_groups:
-                            del_group_sel = st.selectbox("제거할 그룹 선택", my_groups, key="ins_wl_del_group_sel")
-                            if st.button("🗑️ 그룹 해제", width="stretch", key="ins_wl_del_btn"):
-                                sh.remove_from_watchlist(sel_ticker, del_group_sel)
-                                cache.get_watchlist_cached.clear()
-                                cache.get_watchlist_details_cached.clear()
-                                st.success(f"'{del_group_sel}' 그룹에서 해제 완료!")
-                                st.rerun()
-                        else:
-                            st.button("🗑️ 그룹 해제", width="stretch", disabled=True, key="ins_wl_del_btn_dis")
-                            
-                with c_ins3:
-                    st.caption("💼 포트폴리오 자산 관리")
-                    
-                    if in_portfolio:
-                        status_tag = f"<span style='font-size:0.75rem;color:#059669;font-weight:700;'>(보유: {p_shares}주 @${p_price:.2f}, {p_pos_type})</span>"
-                    else:
-                        status_tag = "<span style='font-size:0.75rem;color:#64748b;font-weight:700;'>(미보유)</span>"
-                    
-                    st.markdown(f"<div style='font-size: 0.8rem; color: #475569; margin-bottom: 8px;'>현황: {status_tag}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='font-size: 0.8rem; color: #475569; margin-bottom: 8px;'>최신가: <b>${sel_curr_price:,.2f}</b></div>", unsafe_allow_html=True)
-                    
-                    c_pf_btns = st.columns(2)
-                    with c_pf_btns[0]:
-                        buy_btn_label = "➕ 추가 진입" if in_portfolio else "🚀 신규 진입"
-                        if st.button(buy_btn_label, use_container_width=True, type="primary", key="ins_pf_buy_btn"):
-                            dlg.show_purchase_dialog(sel_ticker, sel_curr_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type)
-                    with c_pf_btns[1]:
-                        if in_portfolio:
-                            if st.button("🗑️ 청산", use_container_width=True, key="ins_pf_sell_btn"):
-                                dlg.show_liquidation_dialog(sel_ticker, sel_curr_price, p_shares, p_price, p_pos_type)
-                        else:
-                            st.button("🗑️ 포지션 청산", disabled=True, use_container_width=True, key="ins_pf_sell_dis")
+                render_inspector_panel(selected_stock)
             else:
                 st.markdown('''
                 <div class="inspector-guide-text" style="width: 100% !important; max-width: 100% !important; white-space: normal !important; word-break: break-all !important; overflow-wrap: break-word !important; box-sizing: border-box !important;">

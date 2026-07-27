@@ -4,8 +4,136 @@ import yfinance as yf
 import sheets_helper as sh
 import notion_helper as nh
 import components.cache as cache
-import components.dialogs as dlg
+import components.forms as fm
 import datetime
+
+def conditional_fragment(func):
+    if hasattr(st, "fragment"):
+        return st.fragment()(func)
+    return func
+
+@conditional_fragment
+def render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_price, gain_loss, gain_loss_pct, annual_div, sel_shares, sel_reason, sel_pos_id):
+    if "hub_active_form" not in st.session_state:
+        st.session_state.hub_active_form = None
+    if "hub_port_prev_key" not in st.session_state:
+        st.session_state.hub_port_prev_key = f"{sel_ticker}_{sel_pos}"
+        
+    current_key = f"{sel_ticker}_{sel_pos}"
+    if st.session_state.hub_port_prev_key != current_key:
+        st.session_state.hub_port_prev_key = current_key
+        st.session_state.hub_active_form = None
+
+    with st.container(border=True):
+        st.markdown(f"### 💼 **{sel_ticker} 자산 상세 지표 ({sel_pos})**")
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            st.markdown(f"**현재 평가액**: `${val:,.2f}`  \n**투자 원금**: `${cost:,.2f}`  \n**평균 단가**: `${sel_price:,.2f}`")
+        with col_d2:
+            st.markdown(f"**현재가**: `${curr_price:,.2f}`  \n**평가 손익**: `${gain_loss:+,.2f} ({gain_loss_pct:+.2f}%)`  \n**예상 연간 배당금**: `${annual_div:,.2f}`")
+        
+    c_act1, c_act2, c_act3 = st.columns(3)
+    with c_act1:
+        if st.button("📊 상세 분석 차트로 이동", use_container_width=True, key=f"hub_pf_goto_chart_{current_key}", type="primary"):
+            st.session_state.ticker = sel_ticker
+            st.session_state.menu = "📊 개별 종목 분석"
+            st.rerun()
+    with c_act2:
+        if st.button("➕ 포지션 추가 진입", use_container_width=True, type="primary", key=f"hub_pf_buy_btn_{current_key}"):
+            st.session_state.hub_active_form = "buy"
+            st.rerun()
+    with c_act3:
+        if st.button("🗑️ 포지션 청산", use_container_width=True, key=f"hub_pf_sell_btn_{current_key}"):
+            st.session_state.hub_active_form = "sell"
+            st.rerun()
+
+    # 상호 배제 인라인 폼 렌더링
+    if st.session_state.hub_active_form == "buy":
+        st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+        fm.render_purchase_inline_form(sel_ticker, curr_price, True, sel_shares, sel_price, sel_reason, sel_pos, state_key="hub_active_form")
+    elif st.session_state.hub_active_form == "sell":
+        st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+        fm.render_liquidation_inline_form(sel_ticker, curr_price, sel_shares, sel_price, sel_pos, state_key="hub_active_form")
+
+    fm.render_order_history_panel(sel_ticker, sel_pos, sel_pos_id)
+
+
+@conditional_fragment
+def render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price, all_wl_groups):
+    if "hub_active_form" not in st.session_state:
+        st.session_state.hub_active_form = None
+    if "hub_wl_prev_ticker" not in st.session_state:
+        st.session_state.hub_wl_prev_ticker = sel_ticker
+        
+    if st.session_state.hub_wl_prev_ticker != sel_ticker:
+        st.session_state.hub_wl_prev_ticker = sel_ticker
+        st.session_state.hub_active_form = None
+
+    st.subheader(f"⚙️ 선택된 관심종목 제어: {sel_ticker}")
+    
+    if comments_list:
+        if len(comments_list) == 1:
+            st.info(f"💬 **관심 종목 코멘트**: {comments_list[0]['content']}")
+        else:
+            with st.expander(f"💬 전체 코멘트 이력 ({len(comments_list)}개)", expanded=False):
+                for idx, c_item in enumerate(comments_list):
+                    c_date = c_item['created_at'][:16] if len(c_item['created_at']) >= 16 else c_item['created_at']
+                    st.markdown(f"**📅 {c_date}**  \n{c_item['content']}")
+                    if idx < len(comments_list) - 1:
+                        st.markdown("---")
+
+    c_wl_act1, c_wl_act2, c_wl_act3, c_wl_act4 = st.columns(4)
+    
+    with c_wl_act1:
+        if st.button("📊 상세 차트 분석 이동", use_container_width=True, key=f"hub_wl_goto_chart_{sel_ticker}", type="primary"):
+            st.session_state.ticker = sel_ticker
+            st.session_state.menu = "📊 개별 종목 분석"
+            st.rerun()
+            
+    with c_wl_act2:
+        if st.button("🎯 조건부 타겟 설정", use_container_width=True, key=f"hub_wl_alert_btn_{sel_ticker}"):
+            st.session_state.hub_active_form = "alert"
+            st.rerun()
+            
+    with c_wl_act3:
+        if st.button("🚀 포지션 진입", use_container_width=True, key=f"hub_wl_pf_btn_{sel_ticker}"):
+            st.session_state.hub_active_form = "wl_pf"
+            st.rerun()
+            
+    with c_wl_act4:
+        if st.button("🗑️ 관심 해제", use_container_width=True, key=f"hub_wl_remove_btn_{sel_ticker}"):
+            sh.remove_from_watchlist(sel_ticker, sel_group)
+            cache.get_watchlist_cached.clear()
+            cache.get_watchlist_details_cached.clear()
+            st.session_state.toast_message = f"⭐ {sel_ticker} 관심 해제 완료!"
+            st.rerun()
+
+    # 상호 배제 인라인 폼 렌더링
+    if st.session_state.hub_active_form == "alert":
+        st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+        fm.render_alert_inline_form(sel_ticker, curr_price, state_key="hub_active_form")
+    elif st.session_state.hub_active_form == "wl_pf":
+        st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+        fm.render_wl_pf_inline_form(sel_ticker, curr_price, state_key="hub_active_form")
+            
+    with st.expander("📁 관심 그룹 이동/변경 및 신규 추가"):
+        with st.form(f"wl_group_change_form_{sel_ticker}", clear_on_submit=True):
+            new_grp_select = st.selectbox("이동할 그룹 선택", all_wl_groups + ["+ 새 그룹 추가..."], key=f"hub_wl_grp_sel_{sel_ticker}")
+            new_grp_text = ""
+            if new_grp_select == "+ 새 그룹 추가...":
+                new_grp_text = st.text_input("새 그룹 이름 입력", "", key=f"hub_wl_grp_text_{sel_ticker}").strip()
+            
+            grp_change_submit = st.form_submit_button("관심 그룹 변경 적용")
+            if grp_change_submit:
+                target_group = new_grp_text if new_grp_select == "+ 새 그룹 추가..." else new_grp_select
+                if target_group:
+                    sh.remove_from_watchlist(sel_ticker, sel_group)
+                    sh.add_to_watchlist(sel_ticker, target_group)
+                    st.cache_data.clear()
+                    st.success(f"{sel_ticker}의 관심 그룹이 '{sel_group}'에서 '{target_group}'으로 변경되었습니다.")
+                    st.rerun()
+                else:
+                    st.error("그룹 이름을 입력해 주세요.")
 
 def render_page():
     st.header("💼 내 투자 관리 (My Investment Hub)")
@@ -156,29 +284,7 @@ def render_page():
                     else:
                         annual_div = sel_shares * annual_div_per_share
                     
-                    st.write("")
-                    with st.container(border=True):
-                        st.markdown(f"### 💼 **{sel_ticker} 자산 상세 지표 ({sel_pos})**")
-                        col_d1, col_d2 = st.columns(2)
-                        with col_d1:
-                            st.markdown(f"**현재 평가액**: `${val:,.2f}`  \n**투자 원금**: `${cost:,.2f}`  \n**평균 단가**: `${sel_price:,.2f}`")
-                        with col_d2:
-                            st.markdown(f"**현재가**: `${curr_price:,.2f}`  \n**평가 손익**: `${gain_loss:+,.2f} ({gain_loss_pct:+.2f}%)`  \n**예상 연간 배당금**: `${annual_div:,.2f}`")
-                        
-                c_act1, c_act2, c_act3 = st.columns(3)
-                with c_act1:
-                    if st.button("📊 상세 분석 차트로 이동", use_container_width=True, key="pf_goto_chart_btn", type="primary"):
-                        st.session_state.ticker = sel_ticker
-                        st.session_state.menu = "📊 개별 종목 분석"
-                        st.rerun()
-                with c_act2:
-                    if st.button("➕ 포지션 추가 진입", use_container_width=True, type="primary", key="pf_tab_buy_btn"):
-                        dlg.show_purchase_dialog(sel_ticker, curr_price, True, sel_shares, sel_price, sel_reason, sel_pos)
-                with c_act3:
-                    if st.button("🗑️ 포지션 청산", use_container_width=True, key="pf_tab_sell_btn"):
-                        dlg.show_liquidation_dialog(sel_ticker, curr_price, sel_shares, sel_price, sel_pos)
-                    
-                dlg.render_order_history_panel(sel_ticker, sel_pos, sel_pos_id)
+                render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_price, gain_loss, gain_loss_pct, annual_div, sel_shares, sel_reason, sel_pos_id)
             else:
                 st.info("💡 위의 포트폴리오 표에서 자산 행을 클릭하시면 즉시 상세 차트 분석 이동 및 추가 진입/청산 처리를 할 수 있는 제어 패널이 나타납니다.")
 
@@ -260,21 +366,6 @@ def render_page():
                     sel_ticker = wl_table_df.iloc[selected_idx]['티커']
                     sel_group = wl_table_df.iloc[selected_idx]['관심 그룹']
                     
-                    st.subheader(f"⚙️ 선택된 관심종목 제어: {sel_ticker}")
-                    
-                    comments_list = cache.get_comments_list_cached(sel_ticker)
-                    if comments_list:
-                        if len(comments_list) == 1:
-                            st.info(f"💬 **관심 종목 코멘트**: {comments_list[0]['content']}")
-                        else:
-                            with st.expander(f"💬 전체 코멘트 이력 ({len(comments_list)}개)", expanded=False):
-                                for idx, c_item in enumerate(comments_list):
-                                    c_date = c_item['created_at'][:16] if len(c_item['created_at']) >= 16 else c_item['created_at']
-                                    st.markdown(f"**📅 {c_date}**  \n{c_item['content']}")
-                                    if idx < len(comments_list) - 1:
-                                        st.markdown("---")
-                
-                # 임시 현재가 획득
                 try:
                     price_data = yf.download(sel_ticker, period="1d", progress=False)
                     if not price_data.empty:
@@ -284,48 +375,8 @@ def render_page():
                 except Exception:
                     curr_price = 0.0
 
-                c_wl_act1, c_wl_act2, c_wl_act3, c_wl_act4 = st.columns(4)
-                
-                with c_wl_act1:
-                    if st.button("📊 상세 차트 분석 이동", use_container_width=True, key="wl_tab_goto_chart", type="primary"):
-                        st.session_state.ticker = sel_ticker
-                        st.session_state.menu = "📊 개별 종목 분석"
-                        st.rerun()
-                        
-                with c_wl_act2:
-                    if st.button("🎯 조건부 타겟 설정", use_container_width=True, key="wl_tab_alert_btn"):
-                        dlg.show_watchlist_alert_dialog(sel_ticker, curr_price)
-                        
-                with c_wl_act3:
-                    if st.button("🚀 포지션 진입", use_container_width=True, key="wl_tab_pf_btn"):
-                        dlg.show_watchlist_pf_dialog(sel_ticker, curr_price)
-                        
-                with c_wl_act4:
-                    if st.button("🗑️ 관심 해제", use_container_width=True, key="wl_tab_remove_btn"):
-                        sh.remove_from_watchlist(sel_ticker, sel_group)
-                        cache.get_watchlist_cached.clear()
-                        cache.get_watchlist_details_cached.clear()
-                        st.session_state.toast_message = f"⭐ {sel_ticker} 관심 해제 완료!"
-                        st.rerun()
-                        
-                with st.expander("📁 관심 그룹 이동/변경 및 신규 추가"):
-                    with st.form("wl_group_change_form", clear_on_submit=True):
-                        new_grp_select = st.selectbox("이동할 그룹 선택", all_wl_groups + ["+ 새 그룹 추가..."])
-                        new_grp_text = ""
-                        if new_grp_select == "+ 새 그룹 추가...":
-                            new_grp_text = st.text_input("새 그룹 이름 입력", "").strip()
-                        
-                        grp_change_submit = st.form_submit_button("관심 그룹 변경 적용")
-                        if grp_change_submit:
-                            target_group = new_grp_text if new_grp_select == "+ 새 그룹 추가..." else new_grp_select
-                            if target_group:
-                                sh.remove_from_watchlist(sel_ticker, sel_group)
-                                sh.add_to_watchlist(sel_ticker, target_group)
-                                st.cache_data.clear()
-                                st.success(f"{sel_ticker}의 관심 그룹이 '{sel_group}'에서 '{target_group}'으로 변경되었습니다.")
-                                st.rerun()
-                            else:
-                                st.error("그룹 이름을 입력해 주세요.")
+                comments_list = cache.get_comments_list_cached(sel_ticker)
+                render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price, all_wl_groups)
             else:
                 st.info("💡 위의 관심 종목 표에서 종목 행을 클릭하시면 차트 이동, 알림 등록, 자산 진입(포폴 등록), 관심 해제 등의 단축 연동 제어가 가능합니다.")
 

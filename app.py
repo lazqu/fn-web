@@ -13,7 +13,7 @@ import views.stock_analysis as stock_analysis
 st.set_page_config(
     page_title="배당 모니터링 시스템",
     page_icon="💰",
-    layout="wide",
+    layout="centered",
     initial_sidebar_state="expanded"
 )
 
@@ -28,8 +28,12 @@ except Exception as e:
 # --- 3. 전역 세션 상태 초기화 ---
 if "menu" not in st.session_state:
     st.session_state.menu = "💼 내 투자 관리"
+if "prev_menu" not in st.session_state:
+    st.session_state.prev_menu = "💼 내 투자 관리"
+if "menu_radio" not in st.session_state:
+    st.session_state.menu_radio = "💼 내 투자 관리"
 if "ticker" not in st.session_state:
-    st.session_state.ticker = "AAPL"
+    st.session_state.ticker = ""
 if "toast_message" not in st.session_state:
     st.session_state.toast_message = None
 
@@ -111,14 +115,21 @@ def check_price_alerts():
 # --- 5. 사이드바 내비게이션 렌더링 ---
 with st.sidebar:
     st.markdown("### 🧭 메뉴 이동")
-    menu = st.radio(
+    # 1. 외부 버튼 등으로 st.session_state.menu가 변경된 경우 위젯 값 동기화 (위젯 생성 전이므로 안전)
+    if st.session_state.menu != st.session_state.prev_menu:
+        st.session_state.menu_radio = st.session_state.menu
+        st.session_state.prev_menu = st.session_state.menu
+
+    menu_radio_val = st.radio(
         "이동할 페이지 선택",
         ["💼 내 투자 관리", "📋 전체 종목 리스트", "📊 개별 종목 분석"],
         label_visibility="collapsed",
         key="menu_radio"
     )
-    if menu != st.session_state.menu:
-        st.session_state.menu = menu
+    # 2. 사용자가 사이드바 라디오 버튼을 클릭하여 변경한 경우 동기화
+    if menu_radio_val != st.session_state.menu:
+        st.session_state.menu = menu_radio_val
+        st.session_state.prev_menu = menu_radio_val
         st.rerun()
 
     st.divider()

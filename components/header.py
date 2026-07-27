@@ -6,6 +6,15 @@ def make_hdr_ticker_uppercase():
 
 def render_header():
     """상단 공통 플로팅 헤더 및 신속 조회 검색 바를 렌더링합니다."""
+    # 외부(종목 리스트 등)에서 st.session_state.ticker가 변경되었을 때 헤더 입력 필드 값을 동기화
+    if "prev_ticker" not in st.session_state:
+        st.session_state.prev_ticker = st.session_state.ticker
+        st.session_state.hdr_ticker_input = st.session_state.ticker
+
+    if st.session_state.ticker != st.session_state.prev_ticker:
+        st.session_state.hdr_ticker_input = st.session_state.ticker
+        st.session_state.prev_ticker = st.session_state.ticker
+
     with st.container(border=False, key="top_header_container"):
         col_hdr_title, col_inp, col_btn = st.columns([4, 3, 1])
         with col_hdr_title:
@@ -13,7 +22,6 @@ def render_header():
         with col_inp:
             hdr_ticker_input = st.text_input(
                 "🔍 종목 신속 조회 (티커 입력)", 
-                value=st.session_state.ticker, 
                 placeholder="예: AAPL, SCHD",
                 label_visibility="collapsed", 
                 key="hdr_ticker_input",

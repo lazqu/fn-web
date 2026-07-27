@@ -7,7 +7,7 @@ import plotly.express as px
 import notion_helper as nh
 import sheets_helper as sh
 import components.cache as cache
-import components.dialogs as dlg
+import components.forms as fm
 import div_yf as dyf
 import datetime
 
@@ -18,7 +18,9 @@ def conditional_fragment(func):
 
 @conditional_fragment
 def render_integrated_action_panel(ticker, current_price):
-    col_wl, col_al, col_pf = st.columns(3)
+    if "quick_active_form" not in st.session_state:
+        st.session_state.quick_active_form = None
+    col_wl, col_al = st.columns(2)
 
     # 1. 관심 종목 관리 (다중 그룹 소속 지원)
     with col_wl:
@@ -129,41 +131,53 @@ def render_integrated_action_panel(ticker, current_price):
             else:
                 st.button("🗑️ 전체 삭제", width="stretch", disabled=True, key="al_del_btn_dis")
 
-    # 3. 포트폴리오 관리
-    with col_pf:
-        st.markdown("##### 💼 포트폴리오 관리")
-        portfolio_df = cache.get_portfolio_cached()
-        in_portfolio = ticker in portfolio_df['symbol'].values
-        p_shares = 0.0
-        p_price = 0.0
-        p_entry_reason = ""
-        p_pos_type = "LONG"
+    st.markdown("<div style='margin-top: 20px;'></div>", unsafe_allow_html=True)
+    st.divider()
+
+    # 3. 포트폴리오 관리 (다음 라인 배치)
+    st.markdown("##### 💼 포트폴리오 관리")
+    portfolio_df = cache.get_portfolio_cached()
+    in_portfolio = ticker in portfolio_df['symbol'].values
+    p_shares = 0.0
+    p_price = 0.0
+    p_entry_reason = ""
+    p_pos_type = "LONG"
+    if in_portfolio:
+        p_row = portfolio_df[portfolio_df['symbol'] == ticker].iloc[0]
+        p_shares = float(p_row['shares'])
+        p_price = float(p_row['purchase_price'])
+        p_entry_reason = str(p_row['entry_reason']) if pd.notna(p_row['entry_reason']) else ""
+        p_pos_type = str(p_row.get('position_type', 'LONG')).upper()
+        st.info(f"🟢 **현재 포지션 보유 중**: **{p_shares}주** (가중 평균 평단: **${p_price:.2f}** | 포지션 유형: **{p_pos_type}**)")
+    else:
+        st.caption("현재 이 종목의 포트폴리오 자산이 등록되어 있지 않습니다 (미보유 상태).")
+
+    c_pf_btns = st.columns(2)
+    with c_pf_btns[0]:
+        buy_btn_label = "➕ 추가 진입" if in_portfolio else "🚀 신규 진입"
+        if st.button(buy_btn_label, use_container_width=True, type="primary", key="quick_pf_buy_btn"):
+            st.session_state.quick_active_form = "buy"
+            st.rerun()
+    with c_pf_btns[1]:
         if in_portfolio:
-            p_row = portfolio_df[portfolio_df['symbol'] == ticker].iloc[0]
-            p_shares = float(p_row['shares'])
-            p_price = float(p_row['purchase_price'])
-            p_entry_reason = str(p_row['entry_reason']) if pd.notna(p_row['entry_reason']) else ""
-            p_pos_type = str(p_row.get('position_type', 'LONG')).upper()
-            st.caption(f"보유 중: {p_shares}주 (평단 ${p_price:.2f}, {p_pos_type})")
+            if st.button("🗑️ 청산", use_container_width=True, key="quick_pf_sell_btn"):
+                st.session_state.quick_active_form = "sell"
+                st.rerun()
         else:
-            st.caption("현재 미보유 상태입니다.")
+            st.button("🗑️ 포지션 청산", disabled=True, use_container_width=True, key="quick_pf_sell_dis")
 
-        c_pf_btns = st.columns(2)
-        with c_pf_btns[0]:
-            buy_btn_label = "➕ 추가 진입" if in_portfolio else "🚀 신규 진입"
-            if st.button(buy_btn_label, use_container_width=True, type="primary", key="quick_pf_buy_btn"):
-                dlg.show_purchase_dialog(ticker, current_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type)
-        with c_pf_btns[1]:
-            if in_portfolio:
-                if st.button("🗑️ 청산", use_container_width=True, key="quick_pf_sell_btn"):
-                    dlg.show_liquidation_dialog(ticker, current_price, p_shares, p_price, p_pos_type)
-            else:
-                st.button("🗑️ 포지션 청산", disabled=True, use_container_width=True, key="quick_pf_sell_dis")
+    # 상호 배제형 동적 인라인 폼 렌더링
+    if st.session_state.quick_active_form == "buy":
+        st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+        fm.render_purchase_inline_form(ticker, current_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type, state_key="quick_active_form")
+    elif st.session_state.quick_active_form == "sell" and in_portfolio:
+        st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+        fm.render_liquidation_inline_form(ticker, current_price, p_shares, p_price, p_pos_type, state_key="quick_active_form")
 
-        # 보유 중일 때 최근 체결 이력 취소 관리 패널 출력
-        if in_portfolio:
-            p_pos_id = str(p_row.get("position_id", "")).strip() if "position_id" in p_row else ""
-            dlg.render_order_history_panel(ticker, p_pos_type, p_pos_id)
+    # 보유 중일 때 최근 체결 이력 취소 관리 패널 출력
+    if in_portfolio:
+        p_pos_id = str(p_row.get("position_id", "")).strip() if "position_id" in p_row else ""
+        fm.render_order_history_panel(ticker, p_pos_type, p_pos_id)
 
 
 @conditional_fragment
@@ -498,6 +512,93 @@ def render_chart_section(ticker, df_price, df_stat, df_div_period, df_com, start
             st.info("선택한 기간 동안의 배당 변동 데이터가 없습니다.")
 
 
+@conditional_fragment
+def render_comments_section(ticker):
+    if "active_edit_row" not in st.session_state:
+        st.session_state.active_edit_row = None
+
+    st.markdown("##### ✍️ 투자 메모 및 코멘트")
+    
+    comment_in = st.text_area(
+        "이 종목에 대한 분석이나 진입 근거 등의 기록을 남겨보세요.", 
+        value="", 
+        height=120, 
+        key="quick_comment_input"
+    )
+
+    if st.button("➕ 구글 시트에 새 코멘트 추가 저장", use_container_width=True, type="primary"):
+        if not comment_in.strip():
+            st.warning("추가할 코멘트 내용을 입력해주세요.")
+        else:
+            sh.save_comment(ticker, comment_in)
+            if "quick_comment_input" in st.session_state:
+                del st.session_state["quick_comment_input"]
+            st.cache_data.clear()
+            st.success("새 코멘트가 성공적으로 구글 시트에 추가 저장되었습니다.")
+            st.rerun()
+
+    st.markdown("<div style='margin-top: 15px;'></div>", unsafe_allow_html=True)
+
+    comments_history = cache.get_comments_list_cached(ticker)
+    if comments_history:
+        with st.expander(f"💬 {ticker} 코멘트 히스토리 ({len(comments_history)}건)", expanded=True):
+            for i, c in enumerate(comments_history):
+                row_num = c['row_num']
+                is_editing = (st.session_state.active_edit_row == row_num)
+
+                h_col1, h_col2 = st.columns([5, 2])
+                with h_col1:
+                    created_val = c.get('created_at', '')
+                    updated_val = c.get('updated_at', '')
+                    if created_val == updated_val or not updated_val:
+                        st.markdown(f"🗓️ **{created_val}**")
+                    else:
+                        st.markdown(f"🗓️ **{created_val}** *(수정됨: {updated_val})*")
+                with h_col2:
+                    btn_col1, btn_col2 = st.columns(2)
+                    if is_editing:
+                        with btn_col1:
+                            if st.button("💾 완료", key=f"done_btn_{row_num}", use_container_width=True):
+                                new_val = st.session_state.get(f"edit_cmt_txt_{row_num}", "").strip()
+                                if new_val:
+                                    sh.update_comment_by_row(row_num, new_val)
+                                    st.session_state.active_edit_row = None
+                                    st.cache_data.clear()
+                                    st.success("코멘트가 성공적으로 수정되었습니다.")
+                                    st.rerun()
+                                else:
+                                    st.warning("코멘트 내용을 입력해주세요.")
+                        with btn_col2:
+                            if st.button("❌ 취소", key=f"cancel_btn_{row_num}", use_container_width=True):
+                                st.session_state.active_edit_row = None
+                    else:
+                        with btn_col1:
+                            if st.button("✏️ 수정", key=f"edit_btn_{row_num}", use_container_width=True):
+                                st.session_state.active_edit_row = row_num
+                        with btn_col2:
+                            if st.button("🗑️ 삭제", key=f"del_btn_{row_num}", use_container_width=True):
+                                sh.delete_comment_by_row(row_num)
+                                st.cache_data.clear()
+                                st.success("코멘트가 성공적으로 삭제되었습니다.")
+                                st.rerun()
+                
+                if is_editing:
+                    st.text_area(
+                        "코멘트 수정 입력창",
+                        value=c['content'],
+                        height=100,
+                        key=f"edit_cmt_txt_{row_num}",
+                        label_visibility="collapsed"
+                    )
+                else:
+                    st.write(c['content'])
+                
+                if i < len(comments_history) - 1:
+                    st.divider()
+    else:
+        st.caption("아직 기록된 코멘트가 없습니다. 위에 새 코멘트를 추가해 보세요.")
+
+
 def render_page():
     ticker = st.session_state.ticker
     if not ticker:
@@ -546,88 +647,7 @@ def render_page():
 
     render_integrated_action_panel(ticker, current_price)
 
-    if "active_edit_row" not in st.session_state:
-        st.session_state.active_edit_row = None
-
-    st.markdown("##### ✍️ 투자 메모 및 코멘트")
-    comments_history = cache.get_comments_list_cached(ticker)
-    if comments_history:
-        with st.expander(f"💬 {ticker} 코멘트 히스토리 ({len(comments_history)}건)", expanded=True):
-            for i, c in enumerate(comments_history):
-                row_num = c['row_num']
-                is_editing = (st.session_state.active_edit_row == row_num)
-
-                h_col1, h_col2 = st.columns([5, 2])
-                with h_col1:
-                    created_val = c.get('created_at', '')
-                    updated_val = c.get('updated_at', '')
-                    if created_val == updated_val or not updated_val:
-                        st.markdown(f"🗓️ **{created_val}**")
-                    else:
-                        st.markdown(f"🗓️ **{created_val}** *(수정됨: {updated_val})*")
-                with h_col2:
-                    btn_col1, btn_col2 = st.columns(2)
-                    if is_editing:
-                        with btn_col1:
-                            if st.button("💾 완료", key=f"done_btn_{row_num}", use_container_width=True):
-                                new_val = st.session_state.get(f"edit_cmt_txt_{row_num}", "").strip()
-                                if new_val:
-                                    sh.update_comment_by_row(row_num, new_val)
-                                    st.session_state.active_edit_row = None
-                                    st.cache_data.clear()
-                                    st.success("코멘트가 성공적으로 수정되었습니다.")
-                                    st.rerun()
-                                else:
-                                    st.warning("코멘트 내용을 입력해주세요.")
-                        with btn_col2:
-                            if st.button("❌ 취소", key=f"cancel_btn_{row_num}", use_container_width=True):
-                                st.session_state.active_edit_row = None
-                                st.rerun()
-                    else:
-                        with btn_col1:
-                            if st.button("✏️ 수정", key=f"edit_btn_{row_num}", use_container_width=True):
-                                st.session_state.active_edit_row = row_num
-                                st.rerun()
-                        with btn_col2:
-                            if st.button("🗑️ 삭제", key=f"del_btn_{row_num}", use_container_width=True):
-                                sh.delete_comment_by_row(row_num)
-                                st.cache_data.clear()
-                                st.success("코멘트가 성공적으로 삭제되었습니다.")
-                                st.rerun()
-                
-                if is_editing:
-                    st.text_area(
-                        "코멘트 수정 입력창",
-                        value=c['content'],
-                        height=100,
-                        key=f"edit_cmt_txt_{row_num}",
-                        label_visibility="collapsed"
-                    )
-                else:
-                    st.write(c['content'])
-                
-                if i < len(comments_history) - 1:
-                    st.divider()
-    else:
-        st.caption("아직 기록된 코멘트가 없습니다. 아래에 새 코멘트를 추가해 보세요.")
-    
-    comment_in = st.text_area(
-        "이 종목에 대한 분석이나 진입 근거 등의 기록을 남겨보세요.", 
-        value="", 
-        height=120, 
-        key="quick_comment_input"
-    )
-
-    if st.button("➕ 구글 시트에 새 코멘트 추가 저장", use_container_width=True, type="primary"):
-        if not comment_in.strip():
-            st.warning("추가할 코멘트 내용을 입력해주세요.")
-        else:
-            sh.save_comment(ticker, comment_in)
-            if "quick_comment_input" in st.session_state:
-                del st.session_state["quick_comment_input"]
-            st.cache_data.clear()
-            st.success("새 코멘트가 성공적으로 구글 시트에 추가 저장되었습니다.")
-            st.rerun()
+    render_comments_section(ticker)
 
     st.divider()
 
