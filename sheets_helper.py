@@ -518,15 +518,15 @@ def get_trading_history():
     return df
 
 
-def liquidate_portfolio(symbol, sell_shares, sell_price, exit_reason=""):
+def liquidate_portfolio(symbol, exit_shares, exit_price, exit_reason=""):
     """포트폴리오 자산을 일부 또는 전부 청산하고 매매기록(trading_history)으로 이관하며 주문 원장에 기록하여 잔고를 재계산합니다."""
     sh = get_sh()
     if not sh:
         return False
 
     symbol = symbol.strip().upper()
-    sell_shares = float(sell_shares)
-    sell_price = float(sell_price)
+    exit_shares = float(exit_shares)
+    exit_price = float(exit_price)
 
     # 1. 포트폴리오에서 자산 정보 확인
     portfolio_df = get_portfolio()
@@ -540,20 +540,20 @@ def liquidate_portfolio(symbol, sell_shares, sell_price, exit_reason=""):
     entry_reason = str(row["entry_reason"]) if pd.notna(row["entry_reason"]) else ""
     position_type = str(row.get("position_type", "LONG")).strip().upper()
 
-    if sell_shares > current_shares:
-        sell_shares = current_shares
+    if exit_shares > current_shares:
+        exit_shares = current_shares
 
-    # 2. 매매기록(trading_history)에 저장
+    # 2. 매매기록(trading_history)에 저장 (시트 컬럼 스키마 유지를 위해 기존 순서대로 매핑 기입)
     ws_hist = sh.worksheet("trading_history")
     trade_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     created_at = str(row["created_at"]) if ("created_at" in row and pd.notna(row["created_at"])) else trade_date
     position_id = str(row["position_id"]).strip() if ("position_id" in row and pd.notna(row["position_id"])) else ""
-    ws_hist.append_row([symbol, sell_shares, purchase_price, sell_price, entry_reason, exit_reason, position_type, trade_date, created_at, position_id])
+    ws_hist.append_row([symbol, exit_shares, purchase_price, exit_price, entry_reason, exit_reason, position_type, trade_date, created_at, position_id])
 
     # 3. 주문 원장(order_history)에 청산 주문 적재 (이를 통해 잔고가 자동 재계산됨)
     # LONG 포지션의 청산 액션은 SELL, SHORT 포지션의 청산 액션은 BUY
     action_type = "BUY" if position_type == "SHORT" else "SELL"
-    record_order(symbol, action_type, sell_shares, sell_price, exit_reason, position_type, position_id=position_id)
+    record_order(symbol, action_type, exit_shares, exit_price, exit_reason, position_type, position_id=position_id)
 
     return True
 

@@ -67,3 +67,36 @@ def merge_dividend_data(df_price, df_com):
     df_stat = pd.concat([df_left, df_right], axis=1)
 
     return dfs_agg, df_stat
+
+
+def get_div_data(ticker: str, df_close: pd.DataFrame):
+    """
+    배당 데이터를 가져와 분석 및 통계 가공을 거쳐 결합 데이터를 생성하는 파이프라인 함수입니다.
+    """
+    # 배당금 지급 내역 가져오기
+    df_div_period = get_yf_dividend_history(ticker)
+    # 배당급 집계
+    add_period_columns_by_div(df_div_period)
+    df_com = group_by_period_by_div(df_div_period)
+
+    dfs_agg, df_stat = merge_dividend_data(df_close, df_com)
+    return dfs_agg, df_stat
+
+
+if __name__ == "__main__":
+    ticker_test = "AAPL"
+    print(f"🚀 {ticker_test} 배당 파이프라인 가공 테스트 시작...")
+    try:
+        # 테스트용 가격 데이터 가져오기
+        df_price = yf.download(ticker_test, period="2y", interval="1d")["Close"]
+        if not df_price.empty:
+            dfs_agg, df_stat = get_div_data(ticker_test, df_price)
+            print("\n=== [1] dfs_agg (기간별 배당 통계 요약) ===")
+            print(dfs_agg.head(5))
+            print("\n=== [2] df_stat (상세 결합 테이블) ===")
+            print(df_stat.head(5))
+            print("\n✅ 배당 파이프라인 연산 테스트 완료!")
+        else:
+            print("❌ 가격 데이터를 불러오지 못했습니다.")
+    except Exception as e:
+        print(f"❌ 연산 중 에러 발생: {e}")

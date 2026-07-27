@@ -477,3 +477,58 @@ def backup_notion_to_local(target_dir="docs/journals"):
             break
             
     return success_count
+
+
+def sync_entry_to_notion(ticker, entry_price, entry_shares, final_price, final_shares, entry_reason, position_type="LONG"):
+    """
+    진입/추가 진입 주문 발생 시 노션의 액티브 저널을 찾아 주문 타임라인을 기록하고 
+    저널 페이지 속성(평단가, 수량)을 가중평균 롤업하여 동기화합니다.
+    """
+    try:
+        page_id = get_active_position(ticker, position_type)
+        if not page_id:
+            page_id = create_position_journal(ticker, final_price, entry_reason, position_type)
+        
+        if page_id:
+            add_order_to_journal(page_id, "진입", entry_shares, entry_price, entry_reason)
+            update_position_properties(page_id, avg_price=final_price, shares=final_shares, status="진입중")
+            return True
+        return False
+    except Exception as e:
+        st.warning(f"노션 저널 연동 실패: {e}")
+        return False
+
+
+def sync_exit_to_notion(ticker, exit_price, exit_shares, exit_reason, position_type, purchase_price, current_shares):
+    """
+    청산 거래 발생 시 노션의 액티브 저널을 찾아 청산 타임라인을 기록하고, 
+    보유량이 모두 소진되면 수익률을 집계하여 저널을 마감(청산완료) 처리합니다.
+    """
+    try:
+        page_id = get_active_position(ticker, position_type)
+        if page_id:
+            add_order_to_journal(page_id, "청산", exit_shares, exit_price, exit_reason)
+            
+            if exit_shares >= current_shares:
+                # 전량 청산 완료 ➡️ 저널 마감 (수익률 계산)
+                ret_rate = 0.0
+                if purchase_price > 0:
+                    if position_type.upper() == "SHORT":
+                        ret_rate = ((purchase_price - exit_price) / purchase_price) * 100
+                        ret_val = (purchase_price - exit_price) * exit_shares
+                    else:
+                        ret_rate = ((exit_price - purchase_price) / purchase_price) * 100
+                        ret_val = (exit_price - purchase_price) * exit_shares
+                else:
+                    ret_val = 0.0
+                
+                close_position_journal(page_id, return_rate=ret_rate, return_val=ret_val, feedback=exit_reason)
+            else:
+                # 부분 청산 ➡️ 남은 수량으로 업데이트
+                remaining_shares = current_shares - exit_shares
+                update_position_properties(page_id, avg_price=purchase_price, shares=remaining_shares, status="진입중")
+            return True
+        return False
+    except Exception as e:
+        st.warning(f"노션 저널 청산 연동 실패: {e}")
+        return False
