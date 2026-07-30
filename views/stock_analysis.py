@@ -61,8 +61,7 @@ def render_integrated_action_panel(ticker, current_price):
                         del st.session_state["quick_wl_new_group"]
                     cache.get_watchlist_cached.clear()
                     cache.get_watchlist_details_cached.clear()
-                    st.success(f"관심 그룹 '{group_to_save}'에 추가되었습니다!")
-                    st.rerun()
+                    st.toast(f"⭐ 관심 그룹 '{group_to_save}'에 추가되었습니다!")
         with c_wl_btn2:
             if my_groups:
                 del_group_sel = st.selectbox("제거할 그룹 선택", my_groups, key="quick_wl_del_group")
@@ -70,8 +69,7 @@ def render_integrated_action_panel(ticker, current_price):
                     sh.remove_from_watchlist(ticker, del_group_sel)
                     cache.get_watchlist_cached.clear()
                     cache.get_watchlist_details_cached.clear()
-                    st.success(f"'{del_group_sel}' 그룹에서 해제 완료!")
-                    st.rerun()
+                    st.toast(f"🗑️ '{del_group_sel}' 그룹에서 해제 완료!")
             else:
                 st.button("🗑️ 그룹에서 해제", width="stretch", disabled=True, key="wl_del_btn_dis")
 
@@ -118,16 +116,14 @@ def render_integrated_action_panel(ticker, current_price):
                 if "quick_al_cond_text" in st.session_state:
                     del st.session_state["quick_al_cond_text"]
                 cache.get_alerts_cached.clear()
-                st.success(f"타겟({operator} {target_val}) 저장 완료!")
-                st.rerun()
+                st.toast(f"🎯 타겟({operator} {target_val}) 설정 완료!")
         with c_al_btn2:
             if not my_alerts.empty:
                 if st.button("🗑️ 전체 삭제", width="stretch", key="al_del_btn"):
                     for _, a_row in my_alerts.iterrows():
                         sh.remove_alert(ticker, a_row['condition_type'])
                     cache.get_alerts_cached.clear()
-                    st.success("타겟 조건 삭제 완료!")
-                    st.rerun()
+                    st.toast("🗑️ 타겟 조건 삭제 완료!")
             else:
                 st.button("🗑️ 전체 삭제", width="stretch", disabled=True, key="al_del_btn_dis")
 
@@ -157,22 +153,20 @@ def render_integrated_action_panel(ticker, current_price):
         buy_btn_label = "➕ 추가 진입" if in_portfolio else "🚀 신규 진입"
         if st.button(buy_btn_label, use_container_width=True, type="primary", key="quick_pf_buy_btn"):
             st.session_state.quick_active_form = "buy"
-            st.rerun()
     with c_pf_btns[1]:
         if in_portfolio:
             if st.button("🗑️ 청산", use_container_width=True, key="quick_pf_sell_btn"):
                 st.session_state.quick_active_form = "sell"
-                st.rerun()
         else:
             st.button("🗑️ 포지션 청산", disabled=True, use_container_width=True, key="quick_pf_sell_dis")
 
     # 상호 배제형 동적 인라인 폼 렌더링
     if st.session_state.quick_active_form == "buy":
         st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-        fm.render_purchase_inline_form(ticker, current_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type, state_key="quick_active_form")
+        fm.render_purchase_inline_form(ticker, current_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type, state_key="quick_active_form", trigger_global_rerun=False)
     elif st.session_state.quick_active_form == "sell" and in_portfolio:
         st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-        fm.render_liquidation_inline_form(ticker, current_price, p_shares, p_price, p_pos_type, state_key="quick_active_form")
+        fm.render_liquidation_inline_form(ticker, current_price, p_shares, p_price, p_pos_type, state_key="quick_active_form", trigger_global_rerun=False)
 
     # 보유 중일 때 최근 체결 이력 취소 관리 패널 출력
     if in_portfolio:
@@ -541,7 +535,7 @@ def render_comments_section(ticker):
 
     comments_history = cache.get_comments_list_cached(ticker)
     if comments_history:
-        with st.expander(f"💬 {ticker} 코멘트 히스토리 ({len(comments_history)}건)", expanded=True):
+        with st.expander(f"💬 {ticker} 코멘트 히스토리 ({len(comments_history)}건)", expanded=False):
             for i, c in enumerate(comments_history):
                 row_num = c['row_num']
                 is_editing = (st.session_state.active_edit_row == row_num)
@@ -604,6 +598,15 @@ def render_page():
     if not ticker:
         st.info("사이드바의 '🔍 종목 신속 조회' 입력창에 분석할 티커를 입력해 주세요. (예: QCOM, KO, PG)")
         st.stop()
+
+    # 종목 전환 감지 및 세션 초기화
+    if "analysis_prev_ticker" not in st.session_state:
+        st.session_state.analysis_prev_ticker = ticker
+    if st.session_state.analysis_prev_ticker != ticker:
+        fm.clear_form_state_keys(st.session_state.analysis_prev_ticker)
+        if "quick_comment_input" in st.session_state:
+            del st.session_state["quick_comment_input"]
+        st.session_state.analysis_prev_ticker = ticker
 
     with st.spinner("데이터 로딩 및 차트 작성 중..."):
         try:

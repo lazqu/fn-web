@@ -49,6 +49,16 @@ def get_alert_prices_cached(tickers_to_check):
         return pd.DataFrame()
     return yf.download(tickers_to_check, period="1d", interval="1m", progress=False)
 
+@st.cache_data(ttl=60)
+def get_latest_price_cached(ticker):
+    try:
+        price_data = yf.download(ticker, period="1d", progress=False)
+        if not price_data.empty:
+            return float(price_data['Close'].squeeze().iloc[-1])
+    except Exception:
+        pass
+    return 0.0
+
 def clear_all_caches():
     get_stocks_cached.clear()
     get_portfolio_cached.clear()
@@ -57,6 +67,7 @@ def clear_all_caches():
     get_alerts_cached.clear()
     get_trading_history_cached.clear()
     get_order_history_cached.clear()
+    get_latest_price_cached.clear()
 
 @st.cache_data
 def get_stock_data(ticker):

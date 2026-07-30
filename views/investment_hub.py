@@ -21,6 +21,8 @@ def render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_p
         
     current_key = f"{sel_ticker}_{sel_pos}"
     if st.session_state.hub_port_prev_key != current_key:
+        prev_ticker = st.session_state.hub_port_prev_key.split("_")[0]
+        fm.clear_form_state_keys(prev_ticker)
         st.session_state.hub_port_prev_key = current_key
         st.session_state.hub_active_form = None
 
@@ -41,11 +43,9 @@ def render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_p
     with c_act2:
         if st.button("➕ 포지션 추가 진입", use_container_width=True, type="primary", key=f"hub_pf_buy_btn_{current_key}"):
             st.session_state.hub_active_form = "buy"
-            st.rerun()
     with c_act3:
         if st.button("🗑️ 포지션 청산", use_container_width=True, key=f"hub_pf_sell_btn_{current_key}"):
             st.session_state.hub_active_form = "sell"
-            st.rerun()
 
     # 상호 배제 인라인 폼 렌더링
     if st.session_state.hub_active_form == "buy":
@@ -66,6 +66,7 @@ def render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price,
         st.session_state.hub_wl_prev_ticker = sel_ticker
         
     if st.session_state.hub_wl_prev_ticker != sel_ticker:
+        fm.clear_form_state_keys(st.session_state.hub_wl_prev_ticker)
         st.session_state.hub_wl_prev_ticker = sel_ticker
         st.session_state.hub_active_form = None
 
@@ -93,12 +94,10 @@ def render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price,
     with c_wl_act2:
         if st.button("🎯 조건부 타겟 설정", use_container_width=True, key=f"hub_wl_alert_btn_{sel_ticker}"):
             st.session_state.hub_active_form = "alert"
-            st.rerun()
             
     with c_wl_act3:
         if st.button("🚀 포지션 진입", use_container_width=True, key=f"hub_wl_pf_btn_{sel_ticker}"):
             st.session_state.hub_active_form = "wl_pf"
-            st.rerun()
             
     with c_wl_act4:
         if st.button("🗑️ 관심 해제", use_container_width=True, key=f"hub_wl_remove_btn_{sel_ticker}"):

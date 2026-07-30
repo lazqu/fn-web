@@ -19,8 +19,9 @@ def render_inspector_panel(selected_stock):
 
     sel_ticker = selected_stock["티커"]
     
-    # 선택된 종목이 변경되면 열려있던 입력 폼을 닫음
+    # 선택된 종목이 변경되면 열려있던 입력 폼을 닫고 세션 초기화
     if st.session_state.list_prev_ticker != sel_ticker:
+        fm.clear_form_state_keys(st.session_state.list_prev_ticker)
         st.session_state.list_prev_ticker = sel_ticker
         st.session_state.list_active_form = None
 
@@ -59,13 +60,8 @@ def render_inspector_panel(selected_stock):
         p_entry_reason = str(p_row['entry_reason']) if pd.notna(p_row['entry_reason']) else ""
         p_pos_type = str(p_row.get('position_type', 'LONG')).upper()
 
-    try:
-        price_data = yf.download(sel_ticker, period="1d", progress=False)
-        if not price_data.empty:
-            sel_curr_price = float(price_data['Close'].squeeze().iloc[-1])
-        else:
-            sel_curr_price = p_price if p_price > 0 else 0.0
-    except Exception:
+    sel_curr_price = cache.get_latest_price_cached(sel_ticker)
+    if sel_curr_price == 0.0:
         sel_curr_price = p_price if p_price > 0 else 0.0
 
     c_ins1, c_ins2, c_ins3 = st.columns([1, 1, 1])
@@ -155,22 +151,20 @@ def render_inspector_panel(selected_stock):
             buy_btn_label = "➕ 추가 진입" if in_portfolio else "🚀 신규 진입"
             if st.button(buy_btn_label, use_container_width=True, type="primary", key=f"ins_pf_buy_btn_{sel_ticker}"):
                 st.session_state.list_active_form = "buy"
-                st.rerun()
         with c_pf_btns[1]:
             if in_portfolio:
                 if st.button("🗑️ 청산", use_container_width=True, key=f"ins_pf_sell_btn_{sel_ticker}"):
                     st.session_state.list_active_form = "sell"
-                    st.rerun()
             else:
                 st.button("🗑️ 포지션 청산", disabled=True, use_container_width=True, key=f"ins_pf_sell_dis_{sel_ticker}")
 
     # 상호 배제 인라인 폼 출력
     if st.session_state.list_active_form == "buy":
         st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-        fm.render_purchase_inline_form(sel_ticker, sel_curr_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type, state_key="list_active_form")
+        fm.render_purchase_inline_form(sel_ticker, sel_curr_price, in_portfolio, p_shares, p_price, p_entry_reason, p_pos_type, state_key="list_active_form", trigger_global_rerun=False)
     elif st.session_state.list_active_form == "sell" and in_portfolio:
         st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
-        fm.render_liquidation_inline_form(sel_ticker, sel_curr_price, p_shares, p_price, p_pos_type, state_key="list_active_form")
+        fm.render_liquidation_inline_form(sel_ticker, sel_curr_price, p_shares, p_price, p_pos_type, state_key="list_active_form", trigger_global_rerun=False)
 
 def render_page():
     with st.spinner("종목 리스트 불러오는 중..."):
