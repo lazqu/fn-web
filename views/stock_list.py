@@ -12,6 +12,10 @@ def conditional_fragment(func):
 
 @conditional_fragment
 def render_inspector_panel(selected_stock):
+    if st.session_state.get("toast_message"):
+        st.toast(st.session_state.toast_message)
+        st.session_state.toast_message = None
+
     if "list_active_form" not in st.session_state:
         st.session_state.list_active_form = None
     if "list_prev_ticker" not in st.session_state:
