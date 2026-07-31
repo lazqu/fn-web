@@ -1,0 +1,198 @@
+/* ==========================================================================
+   fn-web Global Neon-Glassmorphic CSS Stylesheet
+   ========================================================================== */
+
+/* 1. Global Input Formatting */
+input { 
+    text-transform: uppercase; 
+}
+
+/* 2. Streamlit Header Transparency */
+header[data-testid="stHeader"] {
+    background-color: transparent !important;
+}
+
+/* 3. Sidebar Codegen Layer adjustments */
+[data-testid="collapsedSidebarCodegen"], [data-testid="stSidebarCollapseButton"] {
+    z-index: 999999 !important;
+}
+[data-testid="stSidebarCollapseButton"] button {
+    color: #38bdf8 !important; /* 사이언 네온 색상 */
+}
+
+/* 4. Top Navigation Bar (Premium Floating Header) */
+div.st-key-top_header_container {
+    background: rgba(15, 23, 42, 0.95) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid rgba(56, 189, 248, 0.25) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
+    width: 100% !important;
+    margin-top: -3.5rem !important; /* 상단 빈 여백 보정 */
+    margin-bottom: 1.5rem !important;
+    padding: 0.9rem 1.5rem !important; /* 좌우 대칭 패딩 */
+}
+
+/* Columns padding removal inside floating header */
+div.st-key-top_header_container div[data-testid="column"] {
+    padding: 0px !important;
+}
+
+/* Header Title (nowrap with responsive font) */
+div.st-key-top_header_container h2 {
+    color: #38bdf8 !important;
+    font-weight: 800 !important;
+    margin: 0 !important;
+    line-height: 40px !important;
+    font-size: clamp(1.2rem, 2.5vw, 1.75rem) !important;
+    white-space: nowrap !important;
+    letter-spacing: -0.02em !important;
+}
+
+/* Columns Alignment settings */
+div.st-key-top_header_container div[data-testid="column"] {
+    display: flex !important;
+    align-items: center !important;
+    align-content: center !important;
+}
+
+/* Header Quick Ticker Input style adjustments */
+div[data-testid="stTextInput"]:has(#hdr_ticker_input) {
+    width: 100% !important;
+    margin-top: 0px !important;
+}
+div[data-testid="stTextInput"]:has(#hdr_ticker_input) > div {
+    margin-top: 0px !important;
+}
+div[data-testid="stTextInput"]:has(#hdr_ticker_input) div[data-baseweb="base-input"],
+div[data-testid="stTextInput"]:has(#hdr_ticker_input) div[data-baseweb="input"] {
+    background-color: #1e293b !important; /* 다크 슬레이트 솔리드 배경 강제 */
+    border: 1px solid rgba(56, 189, 248, 0.35) !important;
+    border-radius: 8px !important;
+}
+#hdr_ticker_input {
+    text-transform: uppercase !important;
+    background-color: transparent !important;
+    color: #ffffff !important;
+    height: 40px !important;
+    font-size: 0.9rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.05em !important;
+    padding-left: 12px !important;
+    border: none !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+#hdr_ticker_input::placeholder {
+    color: rgba(255, 255, 255, 0.5) !important;
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+}
+#hdr_ticker_input::-webkit-input-placeholder {
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+#hdr_ticker_input::-moz-placeholder {
+    color: rgba(255, 255, 255, 0.5) !important;
+}
+#hdr_ticker_input:focus {
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.55) !important;
+}
+
+/* Header Query Button adjustments */
+div.st-key-top_header_container div[data-testid="stButton"] button {
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%) !important;
+    color: #ffffff !important;
+    border: 1px solid rgba(56, 189, 248, 0.5) !important;
+    border-radius: 8px !important;
+    height: 40px !important;
+    font-size: 0.9rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.03em !important;
+    min-width: 80px !important;
+    white-space: nowrap !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2) !important;
+}
+div.st-key-top_header_container div[data-testid="stButton"] button:hover {
+    background: linear-gradient(135deg, #38bdf8 0%, #0284c7 100%) !important;
+    border-color: #38bdf8 !important;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.7) !important;
+    transform: translateY(-1px) !important;
+}
+div.st-key-top_header_container div[data-testid="stButton"] button:active {
+    transform: translateY(1px) !important;
+}
+
+/* 5. Asset Inspector Panel styling (used in watchlist & stock list) */
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker) {
+    /* 대표적 컨테이너 스타일링 (동일한 셸 유지) */
+}
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) {
+    background-color: #f0f9ff !important;
+    border: 1px solid #bae6fd !important;
+    border-radius: 12px !important;
+    padding: 20px 24px !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05) !important;
+    margin-bottom: 20px !important;
+    gap: 0px !important;
+    box-sizing: border-box !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Form margins inside inspector */
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) form {
+    margin-bottom: 0 !important;
+}
+
+/* Inspector Column layout equalizations */
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) [data-testid="column"] {
+    display: flex !important;
+    flex-direction: column !important;
+}
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) [data-testid="column"] > * {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) [data-testid="column"] div[data-testid="stVerticalBlock"] {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) [data-testid="column"] div[data-testid="stVerticalBlock"] > *:last-child {
+    margin-top: auto !important;
+}
+
+/* Hide inspector marker container spaces */
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) > div:has(span.inspector-marker) {
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Bound child containers inside inspector limits */
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) > div,
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) div[data-testid="element-container"],
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) div[data-testid="stMarkdownContainer"],
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) div[data-testid="stMarkdown"],
+div[data-testid="stVerticalBlock"]:has(span.inspector-marker):not(:has(div[data-testid="stVerticalBlock"] span.inspector-marker)) .stMarkdown {
+    max-width: 100% !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+}
+
+/* Inspector Guide details typography */
+.inspector-guide-text {
+    color: #0c4a6e !important;
+    font-size: 0.95rem !important;
+    font-weight: 500 !important;
+    margin: 0 !important;
+    max-width: 100% !important;
+    box-sizing: border-box !important;
+}

@@ -1,0 +1,534 @@
+import os
+import datetime
+import requests
+import streamlit as st
+
+def get_notion_headers():
+    token = st.secrets["notion"]["token"]
+    return {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+        "Notion-Version": "2022-06-28"
+    }
+
+def get_active_position(ticker, position_type="LONG"):
+    """
+    포지션 DB에서 해당 티커와 포지션 구분이 일치하고 '상태'가 '진입중'인 포지션 페이지의 ID를 찾아 반환합니다.
+    존재하지 않으면 None을 반환합니다.
+    """
+    database_id = st.secrets["notion"]["database_id"]
+    url = f"https://api.notion.com/v1/databases/{database_id}/query"
+    headers = get_notion_headers()
+    
+    payload = {
+        "filter": {
+            "and": [
+                {
+                    "property": "티커",
+                    "rich_text": {
+                        "equals": ticker.strip().upper()
+                    }
+                },
+                {
+                    "property": "상태",
+                    "select": {
+                        "equals": "진입중"
+                    }
+                },
+                {
+                    "property": "포지션",
+                    "select": {
+                        "equals": position_type.strip().upper()
+                    }
+                }
+            ]
+        }
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            results = response.json().get("results", [])
+            if results:
+                return results[0]["id"]
+        elif response.status_code == 400:
+            # Fallback: 포지션 속성이 없는 경우 대비하여 티커와 상태로만 재조회
+            fallback_payload = {
+                "filter": {
+                    "and": [
+                        { "property": "티커", "rich_text": { "equals": ticker.strip().upper() } },
+                        { "property": "상태", "select": { "equals": "진입중" } }
+                    ]
+                }
+            }
+            resp_fb = requests.post(url, json=fallback_payload, headers=headers)
+            if resp_fb.status_code == 200:
+                results = resp_fb.json().get("results", [])
+                if results:
+                    return results[0]["id"]
+        return None
+    except Exception as e:
+        st.warning(f"Notion 액티브 포지션 조회 실패: {e}")
+        return None
+
+def get_closed_position_page_id(ticker, created_at_date, position_type="LONG"):
+    """
+    포지션 DB에서 해당 티커, 포지션 타입, 최초 진입일이 일치하는 페이지 ID를 찾아 반환합니다.
+    """
+    database_id = st.secrets["notion"]["database_id"]
+    url = f"https://api.notion.com/v1/databases/{database_id}/query"
+    headers = get_notion_headers()
+    
+    # created_at_date가 시각을 포함하는 문자열일 수 있으므로 YYYY-MM-DD 파트만 추출
+    date_str = str(created_at_date).split(" ")[0].strip()
+    
+    payload = {
+        "filter": {
+            "and": [
+                {
+                    "property": "티커",
+                    "rich_text": {
+                        "equals": ticker.strip().upper()
+                    }
+                },
+                {
+                    "property": "최초 진입일",
+                    "date": {
+                        "equals": date_str
+                    }
+                },
+                {
+                    "property": "포지션",
+                    "select": {
+                        "equals": position_type.strip().upper()
+                    }
+                }
+            ]
+        }
+    }
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            results = response.json().get("results", [])
+            if results:
+                return results[0]["id"]
+        elif response.status_code == 400:
+            # Fallback: 포지션 속성이 없을 경우
+            fallback_payload = {
+                "filter": {
+                    "and": [
+                        { "property": "티커", "rich_text": { "equals": ticker.strip().upper() } },
+                        { "property": "최초 진입일", "date": { "equals": date_str } }
+                    ]
+                }
+            }
+            resp_fb = requests.post(url, json=fallback_payload, headers=headers)
+            if resp_fb.status_code == 200:
+                results = resp_fb.json().get("results", [])
+                if results:
+                    return results[0]["id"]
+        return None
+    except Exception:
+        return None
+
+def get_position_performance(page_id):
+    """
+    해당 매매 기록 페이지의 현재까지 누적된 '실현 손익', '실현 수익률' 및 '평균 매수 단가' 값을 읽어옵니다.
+    실패하거나 속성이 없으면 (0.0, 0.0, 0.0)을 반환합니다.
+    """
+    url = f"https://api.notion.com/v1/pages/{page_id}"
+    headers = get_notion_headers()
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            props = response.json().get("properties", {})
+            
+            # 실현 손익 파싱
+            val_prop = props.get("실현 손익", {}).get("number", 0.0)
+            prev_val = float(val_prop) if val_prop is not None else 0.0
+            
+            # 실현 수익률 파싱
+            rate_prop = props.get("실현 수익률", {}).get("number", 0.0)
+            prev_rate = float(rate_prop) if rate_prop is not None else 0.0
+            
+            # 평균 진입 단가 파싱
+            price_prop = props.get("평균 진입 단가", {}).get("number", 0.0)
+            prev_price = float(price_prop) if price_prop is not None else 0.0
+            
+            return prev_val, prev_rate, prev_price
+        return 0.0, 0.0, 0.0
+    except Exception as e:
+        st.warning(f"Notion 포지션 성적 조회 실패: {e}")
+        return 0.0, 0.0, 0.0
+
+def create_position_journal(ticker, price, entry_reason, position_type="LONG"):
+    """
+    최초 진입 시 노션 DB에 새로운 저널(매매 기록) 페이지를 생성하고 본문 뼈대를 만듭니다.
+    """
+    database_id = st.secrets["notion"]["database_id"]
+    url = "https://api.notion.com/v1/pages"
+    headers = get_notion_headers()
+    
+    date_str = datetime.date.today().strftime("%Y-%m-%d")
+    journal_title = f"{ticker.strip().upper()} ({datetime.date.today().strftime('%y.%m')})"
+    
+    # 1차 시도: 정의된 모든 속성을 담아 보냄
+    payload = {
+        "parent": { "database_id": database_id },
+        "properties": {
+            "저널": { "title": [ { "text": { "content": journal_title } } ] },
+            "티커": { "rich_text": [ { "text": { "content": ticker.strip().upper() } } ] },
+            "최초 진입일": { "date": { "start": date_str } },
+            "평균 진입 단가": { "number": float(price) },
+            "포지션": { "select": { "name": position_type.strip().upper() } },
+            "상태": { "select": { "name": "진입중" } }
+        },
+        "children": [
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [ { "type": "text", "text": { "content": "📌 1. 최초 진입 당시 분석" } } ]
+                }
+            },
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [ { "type": "text", "text": { "content": entry_reason if entry_reason else "별도의 판단 근거 미입력" } } ]
+                }
+            },
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [ { "type": "text", "text": { "content": "⛓️ 2. 매매 내역 및 시점별 판단 근거" } } ]
+                }
+            }
+        ]
+    }
+    
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        
+        # 만약 400 에러(사용자가 데이터베이스에 '평균 매수 단가' 나 '상태' 컬럼을 만들어두지 않음)가 발생할 경우
+        # 최소한의 기본 필드만 포함하여 재시도 (Fallback)
+        if response.status_code == 400:
+            fallback_payload = {
+                "parent": { "database_id": database_id },
+                "properties": {
+                    "저널": { "title": [ { "text": { "content": journal_title } } ] },
+                    "티커": { "rich_text": [ { "text": { "content": ticker.strip().upper() } } ] },
+                    "최초 진입일": { "date": { "start": date_str } }
+                },
+                "children": payload["children"]
+            }
+            response = requests.post(url, json=fallback_payload, headers=headers)
+            
+        if response.status_code in [200, 201]:
+            return response.json().get("id")
+        else:
+            st.warning(f"Notion 매매 기록 생성 실패: {response.text}")
+            return None
+    except Exception as e:
+        st.error(f"Notion API 요청 중 오류 발생: {e}")
+        return None
+
+def add_order_to_journal(page_id, action_text, shares, price, reason):
+    """
+    페이지 본문에 진입/청산 개별 거래 내역 텍스트를 추가합니다.
+    """
+    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+    headers = get_notion_headers()
+    
+    now_str = datetime.datetime.now().strftime("%m/%d %H:%M")
+    bullet_content = f"📅 {now_str}: [{action_text}] {shares}주 (@${price:,.2f})"
+    reason_content = f"\n  └ 💡 근거: {reason}" if reason else "\n  └ 💡 근거: 미작성"
+    
+    payload = {
+        "children": [
+            {
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": { "content": bullet_content }
+                        },
+                        {
+                            "type": "text",
+                            "text": { "content": reason_content },
+                            "annotations": { "italic": True, "color": "gray" }
+                        }
+                    ]
+                }
+            }
+        ]
+    }
+    
+    try:
+        response = requests.patch(url, json=payload, headers=headers)
+        return response.status_code in [200, 201]
+    except Exception as e:
+        st.warning(f"Notion 주문 내역 추가 실패: {e}")
+        return False
+
+def update_position_properties(page_id, avg_price=None, shares=None, status="진입중", return_rate=None, return_val=None, market_regime=None, emotion=None, adherence=None):
+    """
+    포지션 상태와 최종 성적(실현 수익률, 실현 손익) 등의 메타데이터 속성들을 업데이트합니다.
+    없는 속성 필드로 인한 API 에러가 나면 Safe Fallback 처리합니다.
+    """
+    url = f"https://api.notion.com/v1/pages/{page_id}"
+    headers = get_notion_headers()
+    
+    properties = {}
+    
+    # 1. 상태 업데이트
+    properties["상태"] = { "select": { "name": status } }
+    
+    # 2. 평단가 업데이트 (존재 시)
+    if avg_price is not None:
+        properties["평균 진입 단가"] = { "number": float(avg_price) }
+    
+    # 3. 실현 손익 및 실현 수익률 (존재 시)
+    if return_rate is not None:
+        properties["실현 수익률"] = { "number": float(return_rate) }
+    if return_val is not None:
+        properties["실현 손익"] = { "number": float(return_val) }
+        
+    # 4. 시장 환경 및 심리 상태 (존재 시)
+    if market_regime is not None:
+        properties["진입 당시 시장 환경"] = { "select": { "name": market_regime } }
+    if emotion is not None:
+        properties["심리 상태"] = { "multi_select": [ { "name": e } for e in emotion ] }
+        
+    # 5. 원칙 준수 여부 (존재 시)
+    if adherence is not None:
+        properties["원칙 준수 여부"] = { "select": { "name": adherence } }
+        
+    payload = { "properties": properties }
+    
+    try:
+        response = requests.patch(url, json=payload, headers=headers)
+        
+        # 만약 400 에러 발생 시, 없는 속성(예: '실현 수익률' 등)이 원인일 수 있으므로
+        # 가장 기초적이고 범용적인 '상태'와 '평균 진입 단가'만 업데이트 시도 (Fallback)
+        if response.status_code == 400:
+            safe_properties = {
+                "상태": { "select": { "name": status } }
+            }
+            if avg_price is not None:
+                safe_properties["평균 진입 단가"] = { "number": float(avg_price) }
+            
+            fallback_payload = { "properties": safe_properties }
+            response = requests.patch(url, json=fallback_payload, headers=headers)
+            
+        return response.status_code in [200, 201]
+    except Exception as e:
+        st.warning(f"Notion 속성 업데이트 실패: {e}")
+        return False
+
+def close_position_journal(page_id, return_rate, return_val, feedback, adherence=None):
+    """
+    청산 완료 시 최종 피드백 본문 텍스트를 노션에 추가하고 상태를 청산완료로 닫습니다.
+    """
+    # 1. 속성 정보 청산 마감 처리
+    update_position_properties(page_id, status="청산완료", return_rate=return_rate, return_val=return_val, adherence=adherence)
+    
+    # 2. 본문에 최종 피드백 및 복기내용 추가
+    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+    headers = get_notion_headers()
+    
+    payload = {
+        "children": [
+            {
+                "object": "block",
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [ { "type": "text", "text": { "content": "🏁 3. 최종 청산 복기 및 피드백" } } ]
+                }
+            },
+            {
+                "object": "block",
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [ { "type": "text", "text": { "content": feedback if feedback else "청산 피드백이 기록되지 않았습니다." } } ]
+                }
+            }
+        ]
+    }
+    
+    try:
+        response = requests.patch(url, json=payload, headers=headers)
+        return response.status_code in [200, 201]
+    except Exception as e:
+        st.warning(f"Notion 최종 피드백 본문 추가 실패: {e}")
+        return False
+
+def get_page_content_text(page_id):
+    """
+    페이지 본문의 텍스트 내용들을 취합하여 반환합니다. (최초 분석 및 누적 매매/코멘트 타임라인 전체)
+    """
+    url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+    headers = get_notion_headers()
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            blocks = response.json().get("results", [])
+            text_parts = []
+            for block in blocks:
+                b_type = block.get("type", "")
+                if b_type in ["paragraph", "bulleted_list_item", "numbered_list_item", "heading_1", "heading_2", "heading_3"]:
+                    rich_texts = block.get(b_type, {}).get("rich_text", [])
+                    content = "".join(rt.get("text", {}).get("content", "") for rt in rich_texts).strip()
+                    if content:
+                        if b_type == "bulleted_list_item":
+                            text_parts.append(f"* {content}")
+                        elif b_type == "numbered_list_item":
+                            text_parts.append(f"1. {content}")
+                        elif b_type.startswith("heading_"):
+                            level = b_type.split("_")[1]
+                            text_parts.append(f"\n{'#' * int(level)} {content}\n")
+                        else:
+                            text_parts.append(content)
+            return "\n".join(text_parts).strip()
+        return ""
+    except Exception:
+        return ""
+
+
+def backup_notion_to_local(target_dir="docs/journals"):
+    """
+    Notion 데이터베이스에 쌓인 모든 페이지를 로컬 마크다운 파일로 다운로드합니다.
+    (페이지네이션 지원)
+    """
+    os.makedirs(target_dir, exist_ok=True)
+    database_id = st.secrets["notion"]["database_id"]
+    url = f"https://api.notion.com/v1/databases/{database_id}/query"
+    headers = get_notion_headers()
+    
+    has_more = True
+    next_cursor = None
+    success_count = 0
+
+    while has_more:
+        payload = {}
+        if next_cursor:
+            payload["start_cursor"] = next_cursor
+            
+        try:
+            response = requests.post(url, json=payload, headers=headers)
+            if response.status_code != 200:
+                raise Exception(f"Notion DB Query 실패 (상태 코드: {response.status_code})")
+                
+            data = response.json()
+            results = data.get("results", [])
+            
+            for page in results:
+                props = page.get("properties", {})
+                
+                # 티커 추출 (rich_text)
+                ticker_prop = props.get("티커", {}).get("rich_text", [])
+                ticker = ticker_prop[0].get("text", {}).get("content", "UNKNOWN").strip().upper() if ticker_prop else "UNKNOWN"
+                
+                # 날짜 추출 (최초 진입일)
+                date_prop = props.get("최초 진입일", {}).get("date", {})
+                date_val = date_prop.get("start", datetime.date.today().strftime("%Y-%m-%d")) if date_prop else datetime.date.today().strftime("%Y-%m-%d")
+                
+                # 주가 (평균 진입 단가)
+                price_val = props.get("평균 진입 단가", {}).get("number", 0.0)
+                if price_val is None: price_val = 0.0
+                
+                # 상태 추출
+                status_prop = props.get("상태", {}).get("select", {})
+                status_val = status_prop.get("name", "진입중") if status_prop else "진입중"
+                
+                # 포지션 타입 추출 (파일명 중복 방지용)
+                pos_prop = props.get("포지션", {}).get("select", {})
+                pos_val = pos_prop.get("name", "LONG") if pos_prop else "LONG"
+                
+                # 페이지 본문 내용 (최초 분석 및 매매/코멘트 히스토리 전체) 읽어오기
+                page_content = get_page_content_text(page["id"])
+                
+                # 마크다운 템플릿 생성
+                filename = f"{ticker}_{pos_val}_{date_val}.md"
+                filename = "".join(c for c in filename if c.isalnum() or c in ['.', '_', '-']).strip()
+                file_path = os.path.join(target_dir, filename)
+                
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(f"# {ticker} 투자 저널 ({date_val})\n\n")
+                    f.write(f"## 📊 진입 당시 주요 지표\n")
+                    f.write(f"* **평균 진입 단가**: ${price_val:,.2f}\n")
+                    f.write(f"* **현재 상태**: {status_val}\n\n")
+                    f.write(f"## ✍️ 투자 저널 본문 내역\n")
+                    if page_content:
+                        f.write(f"{page_content}\n")
+                    else:
+                        f.write(f"(본문 기록 없음)\n")
+                
+                success_count += 1
+                
+            has_more = data.get("has_more", False)
+            next_cursor = data.get("next_cursor", None)
+            
+        except Exception as e:
+            st.error(f"백업 중 오류 발생: {e}")
+            break
+            
+    return success_count
+
+
+def sync_entry_to_notion(ticker, entry_price, entry_shares, final_price, final_shares, entry_reason, position_type="LONG"):
+    """
+    진입/추가 진입 주문 발생 시 노션의 액티브 저널을 찾아 주문 타임라인을 기록하고 
+    저널 페이지 속성(평단가, 수량)을 가중평균 롤업하여 동기화합니다.
+    """
+    try:
+        page_id = get_active_position(ticker, position_type)
+        if not page_id:
+            page_id = create_position_journal(ticker, final_price, entry_reason, position_type)
+        
+        if page_id:
+            add_order_to_journal(page_id, "진입", entry_shares, entry_price, entry_reason)
+            update_position_properties(page_id, avg_price=final_price, shares=final_shares, status="진입중")
+            return True
+        return False
+    except Exception as e:
+        st.warning(f"노션 저널 연동 실패: {e}")
+        return False
+
+
+def sync_exit_to_notion(ticker, exit_price, exit_shares, exit_reason, position_type, purchase_price, current_shares):
+    """
+    청산 거래 발생 시 노션의 액티브 저널을 찾아 청산 타임라인을 기록하고, 
+    보유량이 모두 소진되면 수익률을 집계하여 저널을 마감(청산완료) 처리합니다.
+    """
+    try:
+        page_id = get_active_position(ticker, position_type)
+        if page_id:
+            add_order_to_journal(page_id, "청산", exit_shares, exit_price, exit_reason)
+            
+            if exit_shares >= current_shares:
+                # 전량 청산 완료 ➡️ 저널 마감 (수익률 계산)
+                ret_rate = 0.0
+                if purchase_price > 0:
+                    if position_type.upper() == "SHORT":
+                        ret_rate = ((purchase_price - exit_price) / purchase_price) * 100
+                        ret_val = (purchase_price - exit_price) * exit_shares
+                    else:
+                        ret_rate = ((exit_price - purchase_price) / purchase_price) * 100
+                        ret_val = (exit_price - purchase_price) * exit_shares
+                else:
+                    ret_val = 0.0
+                
+                close_position_journal(page_id, return_rate=ret_rate, return_val=ret_val, feedback=exit_reason)
+            else:
+                # 부분 청산 ➡️ 남은 수량으로 업데이트
+                remaining_shares = current_shares - exit_shares
+                update_position_properties(page_id, avg_price=purchase_price, shares=remaining_shares, status="진입중")
+            return True
+        return False
+    except Exception as e:
+        st.warning(f"노션 저널 청산 연동 실패: {e}")
+        return False
