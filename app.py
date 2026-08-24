@@ -164,6 +164,8 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
+    header.render_sidebar_search()
+    st.divider()
     check_price_alerts()
 
 
