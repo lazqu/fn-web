@@ -74,7 +74,7 @@ def on_purchase_submit_callback(ticker, current_price, in_portfolio, p_shares, p
         st.session_state[state_key] = None
         st.session_state.toast_message = f"🚀 {ticker} 포지션 진입 완료!"
         if trigger_global_rerun:
-            st.rerun()
+            st.session_state.need_full_rerun = True
     else:
         st.session_state[f"form_error_{ticker}"] = "수량을 0보다 크게 입력해주세요."
 
@@ -101,7 +101,7 @@ def on_liquidation_submit_callback(ticker, current_price, p_shares, p_price, p_p
         st.session_state[state_key] = None
         st.session_state.toast_message = f"🗑️ {ticker} 포지션 {exit_shares}주 청산 완료!"
         if trigger_global_rerun:
-            st.rerun()
+            st.session_state.need_full_rerun = True
     else:
         st.session_state[f"form_error_{ticker}"] = "청산할 수량을 0보다 크게 입력해주세요."
 
@@ -125,7 +125,7 @@ def on_alert_submit_callback(ticker, current_price, state_key, trigger_global_re
     st.session_state[state_key] = None
     st.session_state.toast_message = f"🎯 {ticker} 타겟({operator} {target_val}) 설정 완료!"
     if trigger_global_rerun:
-        st.rerun()
+        st.session_state.need_full_rerun = True
 
 def on_wl_pf_submit_callback(ticker, current_price, state_key, trigger_global_rerun):
     pos_in = st.session_state.get(f"dlg_wl_pos_sel_{ticker}", "LONG")
@@ -152,7 +152,7 @@ def on_wl_pf_submit_callback(ticker, current_price, state_key, trigger_global_re
         st.session_state[state_key] = None
         st.session_state.toast_message = f"🚀 {ticker} 포지션 진입 완료!"
         if trigger_global_rerun:
-            st.rerun()
+            st.session_state.need_full_rerun = True
     else:
         st.session_state[f"form_error_{ticker}"] = "수량을 0보다 크게 입력해주세요."
 

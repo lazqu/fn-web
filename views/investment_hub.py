@@ -14,6 +14,9 @@ def conditional_fragment(func):
 
 @conditional_fragment
 def render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_price, gain_loss, gain_loss_pct, annual_div, sel_shares, sel_reason, sel_pos_id):
+    if st.session_state.get("need_full_rerun"):
+        st.session_state.need_full_rerun = False
+        st.rerun()
     if "hub_active_form" not in st.session_state:
         st.session_state.hub_active_form = None
     if "hub_port_prev_key" not in st.session_state:
@@ -57,9 +60,21 @@ def render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_p
 
     fm.render_order_history_panel(sel_ticker, sel_pos, sel_pos_id)
 
+    # 게스트 모드일 때 가상 노션 투자 저널 보기 지원
+    if not st.session_state.get("is_admin", False):
+        active_page_id = nh.get_active_position(sel_ticker, sel_pos)
+        if active_page_id:
+            st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+            with st.expander("📓 노션에 연동된 투자 저널 내용 보기 (데모 모드)", expanded=False):
+                journal_text = nh.get_page_content_text(active_page_id)
+                st.markdown(journal_text)
+
 
 @conditional_fragment
 def render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price, all_wl_groups):
+    if st.session_state.get("need_full_rerun"):
+        st.session_state.need_full_rerun = False
+        st.rerun()
     if "hub_active_form" not in st.session_state:
         st.session_state.hub_active_form = None
     if "hub_wl_prev_ticker" not in st.session_state:
@@ -365,17 +380,17 @@ def render_page():
                     sel_ticker = wl_table_df.iloc[selected_idx]['티커']
                     sel_group = wl_table_df.iloc[selected_idx]['관심 그룹']
                     
-                try:
-                    price_data = yf.download(sel_ticker, period="1d", progress=False)
-                    if not price_data.empty:
-                        curr_price = float(price_data['Close'].squeeze().iloc[-1])
-                    else:
+                    try:
+                        price_data = yf.download(sel_ticker, period="1d", progress=False)
+                        if not price_data.empty:
+                            curr_price = float(price_data['Close'].squeeze().iloc[-1])
+                        else:
+                            curr_price = 0.0
+                    except Exception:
                         curr_price = 0.0
-                except Exception:
-                    curr_price = 0.0
 
-                comments_list = cache.get_comments_list_cached(sel_ticker)
-                render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price, all_wl_groups)
+                    comments_list = cache.get_comments_list_cached(sel_ticker)
+                    render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price, all_wl_groups)
             else:
                 st.info("💡 위의 관심 종목 표에서 종목 행을 클릭하시면 차트 이동, 알림 등록, 자산 진입(포폴 등록), 관심 해제 등의 단축 연동 제어가 가능합니다.")
 
@@ -616,12 +631,18 @@ def render_page():
                     
                     closed_page_id = nh.get_closed_position_page_id(sel_ticker, sel_created, sel_pos)
                     if closed_page_id:
-                        notion_page_uuid = closed_page_id.replace("-", "")
-                        st.link_button(
-                            f"📓 {sel_ticker} ({sel_pos}) 노션 투자 저널 바로가기",
-                            f"https://notion.so/{notion_page_uuid}",
-                            use_container_width=True
-                        )
+                        if not st.session_state.get("is_admin", False):
+                            st.info("💡 데모 모드에서는 실제 노션 페이지로 이동하는 대신, 아래에 노션으로 동기화된 가상의 저널 내용을 표출합니다.")
+                            with st.expander(f"📓 {sel_ticker} ({sel_pos}) 노션 투자 저널 상세 보기 (데모)", expanded=True):
+                                journal_text = nh.get_page_content_text(closed_page_id)
+                                st.markdown(journal_text)
+                        else:
+                            notion_page_uuid = closed_page_id.replace("-", "")
+                            st.link_button(
+                                f"📓 {sel_ticker} ({sel_pos}) 노션 투자 저널 바로가기",
+                                f"https://notion.so/{notion_page_uuid}",
+                                use_container_width=True
+                            )
                     else:
                         st.caption("ℹ️ 해당 거래의 상세 노션 투자 저널 페이지를 찾을 수 없습니다.")
                         

@@ -25,6 +25,31 @@ try:
 except Exception as e:
     st.warning(f"CSS 로드 실패: {e}")
 
+# --- 2.5 관리자 권한 판별 ---
+import os
+is_local = os.path.exists(".env") or st.secrets.get("RUN_ENVIRONMENT") == "local"
+### $$$
+is_local = False
+
+if "is_admin" not in st.session_state:
+    admin_key = None
+    try:
+        admin_key = st.secrets.get("admin_auth", {}).get("admin_key")
+        if not admin_key:
+            admin_key = st.secrets.get("ADMIN_KEY")
+    except Exception:
+        pass
+    if not admin_key:
+        admin_key = "admin123"  # 기본 대체 값
+        
+    query_key = st.query_params.get("key", "")
+    if is_local:
+        st.session_state.is_admin = True
+    elif query_key == admin_key:
+        st.session_state.is_admin = True
+    else:
+        st.session_state.is_admin = False
+
 # --- 3. 전역 세션 상태 초기화 ---
 if "menu" not in st.session_state:
     st.session_state.menu = "💼 내 투자 관리"
@@ -114,6 +139,12 @@ def check_price_alerts():
 
 # --- 5. 사이드바 내비게이션 렌더링 ---
 with st.sidebar:
+    if st.session_state.get("is_admin", False):
+        if not is_local:
+            st.success("🔑 관리자 모드로 작동 중")
+    else:
+        st.info("🎮 게스트 샌드박스 작동 중  \n*(조작 내역은 새로고침 시 초기화)*")
+
     st.markdown("### 🧭 메뉴 이동")
     # 1. 외부 버튼 등으로 st.session_state.menu가 변경된 경우 위젯 값 동기화 (위젯 생성 전이므로 안전)
     if st.session_state.menu != st.session_state.prev_menu:

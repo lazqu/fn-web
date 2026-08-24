@@ -6,42 +6,97 @@ import os
 import datetime
 import div_yf as dyf
 
-@st.cache_data(ttl=300)
 def get_stocks_cached():
+    if not st.session_state.get("is_admin", False):
+        return sh.get_stocks()
+    return _get_stocks_cached_real()
+
+@st.cache_data(ttl=300)
+def _get_stocks_cached_real():
     return sh.get_stocks()
 
-@st.cache_data(ttl=60)
+
 def get_portfolio_cached():
+    if not st.session_state.get("is_admin", False):
+        return sh.get_portfolio()
+    return _get_portfolio_cached_real()
+
+@st.cache_data(ttl=60)
+def _get_portfolio_cached_real():
     return sh.get_portfolio()
 
-@st.cache_data(ttl=60)
+
 def get_watchlist_cached():
+    if not st.session_state.get("is_admin", False):
+        return sh.get_watchlist()
+    return _get_watchlist_cached_real()
+
+@st.cache_data(ttl=60)
+def _get_watchlist_cached_real():
     return sh.get_watchlist()
 
-@st.cache_data(ttl=60)
+
 def get_watchlist_details_cached():
+    if not st.session_state.get("is_admin", False):
+        return sh.get_watchlist_details()
+    return _get_watchlist_details_cached_real()
+
+@st.cache_data(ttl=60)
+def _get_watchlist_details_cached_real():
     return sh.get_watchlist_details()
 
-@st.cache_data(ttl=60)
+
 def get_alerts_cached():
+    if not st.session_state.get("is_admin", False):
+        return sh.get_alerts()
+    return _get_alerts_cached_real()
+
+@st.cache_data(ttl=60)
+def _get_alerts_cached_real():
     return sh.get_alerts()
 
-@st.cache_data(ttl=60)
+
 def get_trading_history_cached():
-    return sh.get_trading_history()
+    if not st.session_state.get("is_admin", False):
+        return sh.get_trading_history()
+    return _get_trading_history_cached_real()
 
 @st.cache_data(ttl=60)
+def _get_trading_history_cached_real():
+    return sh.get_trading_history()
+
+
 def get_order_history_cached():
+    if not st.session_state.get("is_admin", False):
+        sh.init_sandbox_data()
+        return st.session_state.sandbox_data["order_history"].dropna(subset=["symbol"])
+    return _get_order_history_cached_real()
+
+@st.cache_data(ttl=60)
+def _get_order_history_cached_real():
     ws_ord = sh.get_sh().worksheet("order_history")
     return sh.get_as_dataframe(ws_ord).dropna(subset=["symbol"])
 
-@st.cache_data(ttl=60)
+
 def get_comment_cached(ticker):
-    return sh.get_comment(ticker)
+    if not st.session_state.get("is_admin", False):
+        return sh.get_comment(ticker)
+    return _get_comment_cached_real(ticker)
 
 @st.cache_data(ttl=60)
+def _get_comment_cached_real(ticker):
+    return sh.get_comment(ticker)
+
+
 def get_comments_list_cached(ticker):
+    if not st.session_state.get("is_admin", False):
+        return sh.get_comments_list(ticker)
+    return _get_comments_list_cached_real(ticker)
+
+@st.cache_data(ttl=60)
+def _get_comments_list_cached_real(ticker):
     return sh.get_comments_list(ticker)
+
 
 @st.cache_data(ttl=30)
 def get_alert_prices_cached(tickers_to_check):
@@ -59,6 +114,17 @@ def get_latest_price_cached(ticker):
         pass
     return 0.0
 
+# 캐시 비우기 기능(clear) 위임 등록 (게스트 모드와 관리자 모드 일치화)
+get_stocks_cached.clear = _get_stocks_cached_real.clear
+get_portfolio_cached.clear = _get_portfolio_cached_real.clear
+get_watchlist_cached.clear = _get_watchlist_cached_real.clear
+get_watchlist_details_cached.clear = _get_watchlist_details_cached_real.clear
+get_alerts_cached.clear = _get_alerts_cached_real.clear
+get_trading_history_cached.clear = _get_trading_history_cached_real.clear
+get_order_history_cached.clear = _get_order_history_cached_real.clear
+get_comment_cached.clear = _get_comment_cached_real.clear
+get_comments_list_cached.clear = _get_comments_list_cached_real.clear
+
 def clear_all_caches():
     get_stocks_cached.clear()
     get_portfolio_cached.clear()
@@ -67,6 +133,8 @@ def clear_all_caches():
     get_alerts_cached.clear()
     get_trading_history_cached.clear()
     get_order_history_cached.clear()
+    get_comment_cached.clear()
+    get_comments_list_cached.clear()
     get_latest_price_cached.clear()
 
 @st.cache_data
