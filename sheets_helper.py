@@ -15,8 +15,8 @@ def init_sandbox_data():
         tables = ["stocks", "comments", "watchlist", "portfolio", "alerts", "trading_history", "order_history"]
         
         for table in tables:
-            # 1. 실제 데이터를 보여주고 안전하게 쓰기만 막는 모드인 경우 (API 연결 필요)
-            if SHOW_REAL_DATA_TO_GUEST:
+            # 1. 실제 데이터를 보여주고 안전하게 쓰기만 막는 모드이거나, 'stocks'(공용 종목 정보) 테이블인 경우 실제 데이터 로드 시도
+            if SHOW_REAL_DATA_TO_GUEST or table == "stocks":
                 try:
                     sh_conn = get_sh()
                     if sh_conn:
@@ -44,7 +44,14 @@ def init_sandbox_data():
                     
             # 3. 디폴트 가상 초기 데이터 셋업 (CSV 파일이 없거나 구글 시트 연결 실패 시 대비)
             if table == "stocks":
-                st.session_state.sandbox_data[table] = pd.DataFrame(columns=STOCKS_COLUMNS)
+                st.session_state.sandbox_data[table] = pd.DataFrame([
+                    {"symbol": "SCHD", "companyName": "Schwab U.S. Dividend Equity ETF", "lastDividend": 0.74, "stock_type": "ETF", "group": "고배당 ETF", "weight": 2.5, "marketCap": "50B", "dividendYield": 3.4, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "JEPI", "companyName": "JPMorgan Equity Premium Income ETF", "lastDividend": 0.35, "stock_type": "ETF", "group": "고배당 ETF", "weight": 2.5, "marketCap": "30B", "dividendYield": 7.2, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "O", "companyName": "Realty Income Corp", "lastDividend": 0.263, "stock_type": "STOCK", "group": "리츠", "weight": 1.5, "marketCap": "40B", "dividendYield": 5.6, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "AAPL", "companyName": "Apple Inc.", "lastDividend": 0.25, "stock_type": "STOCK", "group": "기술주", "weight": 5.0, "marketCap": "3T", "dividendYield": 0.5, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "MSFT", "companyName": "Microsoft Corp.", "lastDividend": 0.75, "stock_type": "STOCK", "group": "기술주", "weight": 5.0, "marketCap": "3T", "dividendYield": 0.8, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "KO", "companyName": "Coca-Cola Co.", "lastDividend": 0.485, "stock_type": "STOCK", "group": "배당귀족", "weight": 2.0, "marketCap": "270B", "dividendYield": 3.1, "updated_at": "2026-08-20 12:00:00"}
+                ])
             elif table == "comments":
                 st.session_state.sandbox_data[table] = pd.DataFrame(columns=["symbol", "content", "created_at", "updated_at"])
             elif table == "watchlist":
