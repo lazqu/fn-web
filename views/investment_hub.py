@@ -266,38 +266,37 @@ def render_page():
             )
             
             selected_rows = event_pf.selection.rows
-            if selected_rows:
+            if selected_rows and selected_rows[0] < len(pf_display_df):
                 selected_idx = selected_rows[0]
-                if selected_idx < len(pf_display_df):
-                    sel_ticker = pf_display_df.iloc[selected_idx]['티커']
-                    sel_row = portfolio_df[portfolio_df['symbol'] == sel_ticker].iloc[0]
-                    sel_shares = float(sel_row['shares'])
-                    sel_price = float(sel_row['purchase_price'])
-                    sel_reason = str(sel_row['entry_reason']) if pd.notna(sel_row['entry_reason']) else ""
-                    sel_pos = str(sel_row.get('position_type', 'LONG')).upper()
-                    sel_pos_id = str(sel_row.get('position_id', '')).strip()
-                    
-                    curr_price = close_prices.get(sel_ticker, 0.0)
-                    if curr_price == 0.0:
-                        curr_price = sel_price
-                    cost = sel_shares * sel_price
-                    
-                    if sel_pos == "SHORT":
-                        gain_loss = sel_shares * (sel_price - curr_price)
-                        val = cost + gain_loss
-                    else:
-                        gain_loss = sel_shares * (curr_price - sel_price)
-                        val = sel_shares * curr_price
-                    gain_loss_pct = (gain_loss / cost * 100) if cost > 0 else 0.0
-                    
-                    stock_info = stocks_df[stocks_df['symbol'] == sel_ticker]
-                    last_div = float(stock_info.iloc[0]['lastDividend']) if not stock_info.empty else 0.0
-                    annual_div_per_share = last_div * 4
-                    if sel_pos == "SHORT":
-                        annual_div = -sel_shares * annual_div_per_share
-                    else:
-                        annual_div = sel_shares * annual_div_per_share
-                    
+                sel_ticker = pf_display_df.iloc[selected_idx]['티커']
+                sel_row = portfolio_df[portfolio_df['symbol'] == sel_ticker].iloc[0]
+                sel_shares = float(sel_row['shares'])
+                sel_price = float(sel_row['purchase_price'])
+                sel_reason = str(sel_row['entry_reason']) if pd.notna(sel_row['entry_reason']) else ""
+                sel_pos = str(sel_row.get('position_type', 'LONG')).upper()
+                sel_pos_id = str(sel_row.get('position_id', '')).strip()
+                
+                curr_price = close_prices.get(sel_ticker, 0.0)
+                if curr_price == 0.0:
+                    curr_price = sel_price
+                cost = sel_shares * sel_price
+                
+                if sel_pos == "SHORT":
+                    gain_loss = sel_shares * (sel_price - curr_price)
+                    val = cost + gain_loss
+                else:
+                    gain_loss = sel_shares * (curr_price - sel_price)
+                    val = sel_shares * curr_price
+                gain_loss_pct = (gain_loss / cost * 100) if cost > 0 else 0.0
+                
+                stock_info = stocks_df[stocks_df['symbol'] == sel_ticker]
+                last_div = float(stock_info.iloc[0]['lastDividend']) if not stock_info.empty else 0.0
+                annual_div_per_share = last_div * 4
+                if sel_pos == "SHORT":
+                    annual_div = -sel_shares * annual_div_per_share
+                else:
+                    annual_div = sel_shares * annual_div_per_share
+                
                 render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_price, gain_loss, gain_loss_pct, annual_div, sel_shares, sel_reason, sel_pos_id)
             else:
                 st.info("💡 위의 포트폴리오 표에서 자산 행을 클릭하시면 즉시 상세 차트 분석 이동 및 추가 진입/청산 처리를 할 수 있는 제어 패널이 나타납니다.")
@@ -374,23 +373,22 @@ def render_page():
             )
             
             selected_wl_rows = event_wl.selection.rows
-            if selected_wl_rows:
+            if selected_wl_rows and selected_wl_rows[0] < len(wl_table_df):
                 selected_idx = selected_wl_rows[0]
-                if selected_idx < len(wl_table_df):
-                    sel_ticker = wl_table_df.iloc[selected_idx]['티커']
-                    sel_group = wl_table_df.iloc[selected_idx]['관심 그룹']
-                    
-                    try:
-                        price_data = yf.download(sel_ticker, period="1d", progress=False)
-                        if not price_data.empty:
-                            curr_price = float(price_data['Close'].squeeze().iloc[-1])
-                        else:
-                            curr_price = 0.0
-                    except Exception:
+                sel_ticker = wl_table_df.iloc[selected_idx]['티커']
+                sel_group = wl_table_df.iloc[selected_idx]['관심 그룹']
+                
+                try:
+                    price_data = yf.download(sel_ticker, period="1d", progress=False)
+                    if not price_data.empty:
+                        curr_price = float(price_data['Close'].squeeze().iloc[-1])
+                    else:
                         curr_price = 0.0
+                except Exception:
+                    curr_price = 0.0
 
-                    comments_list = cache.get_comments_list_cached(sel_ticker)
-                    render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price, all_wl_groups)
+                comments_list = cache.get_comments_list_cached(sel_ticker)
+                render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price, all_wl_groups)
             else:
                 st.info("💡 위의 관심 종목 표에서 종목 행을 클릭하시면 차트 이동, 알림 등록, 자산 진입(포폴 등록), 관심 해제 등의 단축 연동 제어가 가능합니다.")
 
@@ -421,11 +419,10 @@ def render_page():
             )
             
             selected_al_rows = event_al.selection.rows
-            if selected_al_rows:
+            if selected_al_rows and selected_al_rows[0] < len(al_display):
                 sel_idx = selected_al_rows[0]
-                if sel_idx < len(al_display):
-                    sel_ticker = al_display.iloc[sel_idx]['티커']
-                    sel_cond = alerts_df.iloc[sel_idx]['condition_type']
+                sel_ticker = al_display.iloc[sel_idx]['티커']
+                sel_cond = alerts_df.iloc[sel_idx]['condition_type']
                 
                 c_al_act1, c_al_act2 = st.columns(2)
                 with c_al_act1:
@@ -545,7 +542,7 @@ def render_page():
             )
             
             selected_th_rows = event_th.selection.rows
-            if selected_th_rows:
+            if selected_th_rows and selected_th_rows[0] < len(hist_display_df):
                 sel_idx = selected_th_rows[0]
                 if sel_idx < len(hist_display_df):
                     sel_row = hist_display_df.iloc[sel_idx]

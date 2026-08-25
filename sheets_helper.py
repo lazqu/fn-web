@@ -289,7 +289,8 @@ def save_comment(symbol, content):
         symbol = symbol.strip().upper()
         now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         new_row = pd.DataFrame([{"symbol": symbol, "content": content, "created_at": now_str, "updated_at": now_str}])
-        st.session_state.sandbox_data["comments"] = pd.concat([df, new_row]).reset_index(drop=True)
+        dfs = [d for d in [df, new_row] if not d.empty]
+        st.session_state.sandbox_data["comments"] = pd.concat(dfs).reset_index(drop=True)
         return
 
     sh = get_sh()
@@ -453,7 +454,8 @@ def add_to_watchlist(symbol, group_name="기본 그룹"):
             df.at[idx, "created_at"] = now_str
         else:
             new_row = pd.DataFrame([{"symbol": symbol, "group_name": group_name, "created_at": now_str}])
-            st.session_state.sandbox_data["watchlist"] = pd.concat([df, new_row]).reset_index(drop=True)
+            dfs = [d for d in [df, new_row] if not d.empty]
+            st.session_state.sandbox_data["watchlist"] = pd.concat(dfs).reset_index(drop=True)
         return
 
     sh = get_sh()
@@ -585,7 +587,8 @@ def save_portfolio(symbol, shares, purchase_price, entry_reason="", position_typ
                 "created_at": now_str,
                 "position_id": position_id
             }])
-            st.session_state.sandbox_data["portfolio"] = pd.concat([df, new_row]).reset_index(drop=True)
+            dfs = [d for d in [df, new_row] if not d.empty]
+            st.session_state.sandbox_data["portfolio"] = pd.concat(dfs).reset_index(drop=True)
         return
 
     sh = get_sh()
@@ -701,7 +704,8 @@ def save_alert(symbol, target_price, condition_type="above"):
                 "is_triggered": "FALSE",
                 "created_at": now_str
             }])
-            st.session_state.sandbox_data["alerts"] = pd.concat([df, new_row]).reset_index(drop=True)
+            dfs = [d for d in [df, new_row] if not d.empty]
+            st.session_state.sandbox_data["alerts"] = pd.concat(dfs).reset_index(drop=True)
         return
 
     sh = get_sh()
@@ -855,7 +859,8 @@ def liquidate_portfolio(symbol, exit_shares, exit_price, exit_reason=""):
             "created_at": created_at,
             "position_id": position_id
         }])
-        st.session_state.sandbox_data["trading_history"] = pd.concat([df_hist, new_row]).reset_index(drop=True)
+        dfs = [d for d in [df_hist, new_row] if not d.empty]
+        st.session_state.sandbox_data["trading_history"] = pd.concat(dfs).reset_index(drop=True)
 
         # 3. 주문 원장(order_history)에 청산 주문 적재 (이를 통해 잔고가 자동 재계산됨)
         action_type = "BUY" if position_type == "SHORT" else "SELL"
@@ -1109,7 +1114,8 @@ def record_order(symbol, action_type, shares, price, reason="", position_type="L
             "trade_date": trade_date,
             "position_id": position_id
         }])
-        st.session_state.sandbox_data["order_history"] = pd.concat([df_ord, new_row]).reset_index(drop=True)
+        dfs = [d for d in [df_ord, new_row] if not d.empty]
+        st.session_state.sandbox_data["order_history"] = pd.concat(dfs).reset_index(drop=True)
         
         recalculate_position(symbol, position_type)
         return True
