@@ -26,29 +26,24 @@ except Exception as e:
     st.warning(f"CSS 로드 실패: {e}")
 
 # --- 2.5 관리자 권한 판별 ---
-import os
-is_local = os.path.exists(".env") or st.secrets.get("RUN_ENVIRONMENT") == "local"
-### $$$
-is_local = False
+import sys
+is_local = "--local" in sys.argv
 
-if "is_admin" not in st.session_state:
-    admin_key = None
-    try:
-        admin_key = st.secrets.get("admin_auth", {}).get("admin_key")
-        if not admin_key:
-            admin_key = st.secrets.get("ADMIN_KEY")
-    except Exception:
-        pass
-    if not admin_key:
-        admin_key = "admin123"  # 기본 대체 값
-        
-    query_key = st.query_params.get("key", "")
-    if is_local:
-        st.session_state.is_admin = True
-    elif query_key == admin_key:
-        st.session_state.is_admin = True
-    else:
+if is_local:
+    # 로컬 개발 환경인 경우 강제로 관리자 권한 부여 (불필요한 검사 건너뜀)
+    st.session_state.is_admin = True
+else:
+    # 1) 관리자 비밀키 가져오기 (admin_auth 네임스페이스 구조로 단일화)
+    admin_key = st.secrets.get("admin_auth", {}).get("admin_key", "admin123")
+
+    # 2) 세션 'is_admin' 기본값 생성
+    if "is_admin" not in st.session_state:
         st.session_state.is_admin = False
+
+    # 3) URL 쿼리 파라미터가 명시적으로 들어왔을 때만 세션 상태 갱신
+    query_key = st.query_params.get("key")
+    if query_key is not None:
+        st.session_state.is_admin = (query_key == admin_key)
 
 # --- 3. 전역 세션 상태 초기화 ---
 if "menu" not in st.session_state:
