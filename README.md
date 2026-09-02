@@ -1,87 +1,124 @@
-# 💰 배당 포트폴리오 모니터링 & 매매 저널 시스템
+# 💰 fn-web: 미국 배당주 개인 투자 관리 도구
 
-구글 스프레드시트와 노션(Notion) API를 연동하여 실시간 자산 현황을 모니터링하고, 투자 원칙 준수를 돕는 매매 복기 저널을 작성하는 **투자 관리용 Streamlit 웹 어플리케이션**입니다.
+[![Live Demo](https://img.shields.io/badge/Live_Demo-Streamlit_App-FF4B4B?style=for-the-badge&logo=streamlit)](https://gaqu-stock.streamlit.app)
+[![Version](https://img.shields.io/badge/Version-v3.0.0-blue?style=for-the-badge)]()
 
-이 프로젝트는 데이터의 수치적 무결성을 보장하는 **DB 이원화(CQRS/이벤트 소싱) 설계**와, 줄글 일지 작성에 최적화된 **외부 저장소(Google Sheets & Notion) 하이브리드 연동**, 그리고 Streamlit의 동작 한계를 극복한 **Rerun 최소화 성능 최적화**가 적용되어 신뢰성 높은 투자 환경을 제공합니다.
-
----
-
-## 🔗 Live Demo
-* **배포 URL**: (개인 투자 기록 보호 및 외부인에 의한 데이터 오염을 방지하기 위해 데모 사이트는 비공개로 운영 중입니다)
-* 본 서비스는 Google Sheets를 수치 원장 DB로, Notion을 매매 저널 저장소로 하이브리드 연동하여 작동합니다.
+### 💡 Project Overview
+* 🎯 **개발 목적**: 실제 미국 배당주 투자를 진행하며 느낀 불편함을 해결하기 위해 자체 구축한 개인용 도구
+* 🔑 **핵심 기능**: 과거 **배당수익률 조회**, **배당주 풀/관심종목/포트폴리오 관리**, **매매 복기 저널** 등
 
 ---
 
-## 🛠️ 핵심 기능 (Core Features)
+## 🌐 Live Interactive Demo & Sandbox Mode
 
-### 1. 투자 자산 모니터링 & 스크리닝 (V2 골격)
-* **배당 포트폴리오 대시보드**: 현재 보유 중인 자산의 평가액, 수익률, 평균 진입 단가를 실시간 주가 반영 및 시각화(Plotly)를 통해 모니터링합니다.
-* **배당주 Pool 및 관심종목 관리**: 시장의 다양한 배당주를 조건별로 탐색하고 관심종목으로 등록해 빠르게 분석할 수 있습니다.
+본 서비스는 누구나 자유롭게 모의 매매 및 투자 관리 기능을 체험해 볼 수 있도록 **게스트(샌드박스) 모드**를 기본 제공합니다.
 
-### 2. 하이브리드 투자 저널 & 복기 (V3 골격)
-* **포지션(Position) 단위 매매 그룹화**: 여러 번에 걸쳐 분할 진입/청산이 일어나는 거래를 하나의 '포지션 수명 주기'로 묶어 관리합니다.
-* **수치 & 정성 저널의 하이브리드 통합**: 
-  * 계량적 원장은 구글 시트에 안전하게 보관하며, 정성적 복기(진입 판단 근거, 심리 상태 태그, 최종 반성문 등)는 가독성과 자유도가 뛰어난 노션 저널 DB에 실시간 연동 및 자동 마감합니다.
-* **주문 개별 취소 및 평단가 자가 치유**: 잘못 기입된 체결 건을 개별 취소하면 전체 주문 역사를 역산 롤백하여 평단가와 잔고를 정상 상태로 자동 복원합니다.
+* 🔗 **라이브 데모 바로가기**: [https://gaqu-stock.streamlit.app](https://gaqu-stock.streamlit.app)
+* 🔒 **게스트 샌드박스 모드**: 접속 시 로그인 없이 가상 데이터 샌드박스로 구동되며, 관리자의 실제 구글 시트/노션 원장은 안전하게 보호됩니다.
 
 ---
 
-## 📐 시스템 설계 및 아키텍처
+## 🎯 1. 기획 배경 & 문제 정의 (Value-Driven Planning)
+
+본 프로젝트는 **"개인 투자 과정에서 직접 경험한 페인 포인트"**를 명확한 문제로 정의하고, 실질적인 가치를 창출하는 데에서 출발했습니다.
+
+| 구분 | 🛑 기존 페인 포인트 (Pain Points) | 💡 fn-web의 해결책 (Value Delivered) |
+| :--- | :--- | :--- |
+| **지표의 부재** | 배당주 투자의 핵심 지표인 **과거 배당수익률 추이**를 한눈에 볼 수 있는 무료 서비스 부재 | 과거 시점별 배당수익률 직접 산출 및 **반응형 Plotly 차트 시각화** 구현 |
+| **환경 종속성** | Jupyter Notebook 기반 로컬 스크립트로 동작하여 무거운 노트북 소지 필수 | 어디서나 접속 가능한 **Streamlit Cloud 기반 웹 서비스**로 전환 |
+| **조작/시각화 불편** | 매번 코드를 실행해 결과 확인, 기간 설정 및 필터링 불가능 | 기간 선택, 종목 검색, 필터링, 차트 확대/축소를 지원하는 **반응형 UI/UX** |
+| **종목 관리 한계** | 관심 배당주를 일일이 수동 입력하여 개별 조회 | 배당주 Pool 스크리닝 및 **관심종목 찜하기/개인화 관리** 기능 도입 |
+| **복기 체계 부재** | 매매 수치 기록과 당시의 정성적 투자 근거/복기가 파편화됨 | **Google Sheets(수치 원장)** + **Notion(정성 저널)** 하이브리드 자동 동기화 |
+
+---
+
+## 🏗️ 2. 전략적 도구 조합 (Orchestration & Lean Tech Stack)
+
+**문제 해결에 필요한 최소한의 & 최적의 도구(Lean & Smart Tooling)**를 오케스트레이션하여 **서버 유지 비용 0원**과 개발 효율성 극대화를 달성했습니다.
+
+```
+[Streamlit Cloud] ── (웹 UI & 반응형 인터랙션)
+       │
+       ├── [yfinance] ────────── (실시간/과거 주가 & 배당 시계열 수집)
+       ├── [Google Sheets] ───── (수치 원장 DB / CQRS SSOT 원장)
+       └── [Notion API] ──────── (정성적 매매일지 & 투자 복기 저널)
+```
+
+* **Market Data Engine (`yfinance`)**: 과거 주가 대비 배당금 추이를 역산하여 시계열 배당수익률 데이터 파이프라인 형성.
+* **Quantitative DB (`Google Sheets API`)**: 별도 서버 DB(PostgreSQL/MySQL 등) 구축/운영 비용 없이 수치 무결성을 보장하는 **정형 수치 원장(SSOT)**으로 활용.
+* **Qualitative Journaling System (`Notion API`)**: 줄글 복기, 심리 상태 태그, 진입 사유 기록에 최적화된 리치 텍스트 저장소 역할 수행.
+* **Application Layer (`Streamlit`)**: Python 스택만으로 빠르고 직관적인 반응형 금융 대시보드를 구축.
+
+---
+
+## 📈 3. 점진적 고도화 과정 (Agility & Iteration Roadmap)
+
+우선순위(Priority)에 따라 단계를 나누고 지속적인 버전 관리를 통해 프로덕트를 점진적으로 고도화했습니다.
+
+```
+[V0: Local Script] ➔ [V1: Web Dashboard] ➔ [V2: Personalization] ➔ [V3: System Integrity & Journal]
+```
+
+* **V0 (로컬 분석 스크립트)**: Jupyter Notebook에서 야후 파이낸스 데이터를 활용한 과거 배당수익률 계산 및 그래프 생성 스크립트 검증.
+* **V1 (웹 대시보드 전환)**: Streamlit Web App으로 전환하여 공간 제약 없이 어디서나 웹 브라우저로 접근 가능한 대시보드 구축.
+* **V2 (사용자 개인화 및 데이터 확장)**: 배당주 Pool 탐색, 조건별 스크리닝 및 관심종목 등록/관리 UI 도입.
+* **V3 (원장 정합성 및 매매 복기 고도화)** *(Current)*:
+  - **CQRS / 이벤트 소싱** 기반 Google Sheets DB 이원화 (`order_history` SSOT 연동 및 평단가 자가 치유).
+  - **Notion 매매일지(복기)** 연동 및 포지션 단위 그룹화.
+
+---
+
+## 📐 4. 핵심 기술 및 시스템 설계 (Technical Highlights)
 
 ### System Architecture
 ```mermaid
 graph TD
-    User([사용자]) -->|1. 주문 입력 / 취소 / 조회| WebApp[Streamlit Web App]
-    
-    subgraph "Google Sheets DB Layer (정형 수치 원장)"
+    User([사용자 / 게스트]) -->|주문 입력 / 복기 작성 / 조회| WebApp[Streamlit Web App]
+
+    subgraph "External Market Data"
+        YFinance[Yahoo Finance API]
+    end
+
+    subgraph "Google Sheets Layer (정형 수치 원장)"
         OrderHistory[order_history 주문 원장 - SSOT] <-->|Event-Driven Rollup| Recalc[재계산 엔진]
-        Recalc <-->|Sync Active Balance| Portfolio[portfolio 보유 잔고 요약]
-        Recalc -->|Archive Realized Gain/Loss| TradingHistory[trading_history 청산 완료 이력]
+        Recalc <-->|Sync Active Balance| Portfolio[portfolio 보유 잔고]
+        Recalc -->|Archive Realized Gain/Loss| TradingHistory[trading_history 청산 이력]
     end
 
     subgraph "Notion DB Layer (정성 투자 저널)"
         NotionJournal[Notion Portfolio & Journal DB]
     end
 
-    subgraph "External Market Data"
-        YFinance[Yahoo Finance API]
-    end
-
-    WebApp <-->|Read/Write Sheets API| OrderHistory
-    WebApp <-->|Read Sheets API| Portfolio
-    WebApp <-->|Read Sheets API| TradingHistory
-    WebApp -->|Real-time Transaction Sync| NotionJournal
-    WebApp <-->|Live Stock Quote Caching| YFinance
+    WebApp <-->|Live Stock & Dividend Caching| YFinance
+    WebApp <-->|Read / Write Commands| OrderHistory
+    WebApp <-->|Read Summaries| Portfolio
+    WebApp -->|Real-time Journal Sync| NotionJournal
 ```
 
-### 1. CQRS 및 이벤트 소싱 기반의 데이터 정합성 (DB 이원화)
-* **진실의 단일 원천(SSOT)**: 보유 잔고를 직접 덮어쓰지 않고, 불변의 거래 로그인 `order_history`(주문 원장)만 쓰기 채널(Command)로 삼습니다.
-* **이벤트 소싱**: 잔고 테이블인 `portfolio`와 실현 이력 `trading_history`는 원장 데이터를 시간순으로 처음부터 재생 및 집계하여 도출하는 읽기 채널(Query) 뷰로 격리 구현했습니다.
-* **조인 무결성**: 다중 분할 매매 상태에서도 데이터가 꼬이지 않도록 관계형 식별 키인 `position_id`를 도입했습니다.
-
-### 2. 개인화 인터랙션 랙 해소를 위한 Rerun 최소화
-* 관심종목 등록, 포지션 추가/청산, 모달 조작 등 개인화 인터랙션이 추가됨에 따라 화면 전체가 새로 렌더링되던 Streamlit의 병목을 해결했습니다.
-* **st.fragment 부분 렌더링**: 무거운 Plotly 차트 레이아웃 등과 입력 폼 영역을 분리 격리하여 조작 시 Rerun 단위를 "부분"으로 격리하고 불필요한 차트 재렌더링 부하를 0%로 만들었습니다.
-* **정밀 캐시 무효화 (Fine-grained Invalidation)**: 캐시 파괴 범위를 핀포인트로 조준 만료하여 불필요한 야후 파이낸스(`yfinance`) 주가 데이터 재다운로드 로딩 현상을 제거했습니다.
+### Key Technical Achievements
+1. **CQRS & 이벤트 소싱 기반 수치 정합성 보장**
+   - **쓰기/조회 분리 (CQRS)**: 보유 잔고를 직접 덮어쓰지 않고, 수정 불가능한 거래 원장(`order_history`)에만 주문을 순차적으로 기입.
+   - **이력 재생 및 복원 (이벤트 소싱)**: 잘못 기입된 체결 건을 취소하면 과거 거래 로그 전체를 처음부터 전수 재계산하여 평단가와 잔고를 자동 치유(Self-Healing).
+2. **Streamlit Rerun 성능 병목 최적화**
+   - `st.fragment`를 도입하여 대용량 Plotly 차트 영역과 옵션 조작 영역의 Rerun 스코프를 격리 차단 (불필요한 차트 재렌더링 부하 0% 달성).
+   - 정밀 캐시 무효화(Fine-grained Invalidation)로 `yfinance` 주가 데이터 불필요 재다운로드 병목 제거.
 
 ---
 
-## 🚀 로컬 실행 및 테스트 방법
+## ⚡ 5. 빠른 실행 및 개발자 가이드 (Quick Start & Setup)
 
-### 1. 가상환경 구축 및 패키지 설치
+### 로컬 모의 구동 (Quick Run)
 ```bash
+git clone https://github.com/lazqu/fn-web.git
+cd fn-web
 pip install -r requirements.txt
-```
-
-### 2. 환경 변수 설정
-로컬 루트 디렉토리에 `.env` 파일을 생성하고 Google Sheets API 자격증명 및 Notion API Key를 설정합니다.
-
-### 3. 웹 어플리케이션 구동
-```bash
 streamlit run app.py
 ```
 
-### 4. ⚙️ [관리자 도구] 테스트 데이터 완전 초기화
-```bash
-python reset_all_data.py
-```
+> 📖 **GCP 서비스 계정 발급, Notion DB 속성 스키마 및 secrets.toml 연동에 관한 가이드**는 **[DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)**를 참조하세요.
+
+---
+
+## 📄 License & Contact
+- **Author**: lazqu
+- **Repository**: [https://github.com/lazqu/fn-web](https://github.com/lazqu/fn-web)
