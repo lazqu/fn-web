@@ -14,6 +14,9 @@ def conditional_fragment(func):
 
 @conditional_fragment
 def render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_price, gain_loss, gain_loss_pct, annual_div, sel_shares, sel_reason, sel_pos_id):
+    if st.session_state.get("need_full_rerun"):
+        st.session_state.need_full_rerun = False
+        st.rerun()
     if "hub_active_form" not in st.session_state:
         st.session_state.hub_active_form = None
     if "hub_port_prev_key" not in st.session_state:
@@ -57,9 +60,21 @@ def render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_p
 
     fm.render_order_history_panel(sel_ticker, sel_pos, sel_pos_id)
 
+    # 게스트 모드일 때 가상 노션 투자 저널 보기 지원
+    if not st.session_state.get("is_admin", False):
+        active_page_id = nh.get_active_position(sel_ticker, sel_pos)
+        if active_page_id:
+            st.markdown("<div style='margin-top:15px;'></div>", unsafe_allow_html=True)
+            with st.expander("📓 노션에 연동된 투자 저널 내용 보기 (데모 모드)", expanded=False):
+                journal_text = nh.get_page_content_text(active_page_id)
+                st.markdown(journal_text)
+
 
 @conditional_fragment
 def render_hub_watchlist_panel(sel_ticker, sel_group, comments_list, curr_price, all_wl_groups):
+    if st.session_state.get("need_full_rerun"):
+        st.session_state.need_full_rerun = False
+        st.rerun()
     if "hub_active_form" not in st.session_state:
         st.session_state.hub_active_form = None
     if "hub_wl_prev_ticker" not in st.session_state:
@@ -251,38 +266,37 @@ def render_page():
             )
             
             selected_rows = event_pf.selection.rows
-            if selected_rows:
+            if selected_rows and selected_rows[0] < len(pf_display_df):
                 selected_idx = selected_rows[0]
-                if selected_idx < len(pf_display_df):
-                    sel_ticker = pf_display_df.iloc[selected_idx]['티커']
-                    sel_row = portfolio_df[portfolio_df['symbol'] == sel_ticker].iloc[0]
-                    sel_shares = float(sel_row['shares'])
-                    sel_price = float(sel_row['purchase_price'])
-                    sel_reason = str(sel_row['entry_reason']) if pd.notna(sel_row['entry_reason']) else ""
-                    sel_pos = str(sel_row.get('position_type', 'LONG')).upper()
-                    sel_pos_id = str(sel_row.get('position_id', '')).strip()
-                    
-                    curr_price = close_prices.get(sel_ticker, 0.0)
-                    if curr_price == 0.0:
-                        curr_price = sel_price
-                    cost = sel_shares * sel_price
-                    
-                    if sel_pos == "SHORT":
-                        gain_loss = sel_shares * (sel_price - curr_price)
-                        val = cost + gain_loss
-                    else:
-                        gain_loss = sel_shares * (curr_price - sel_price)
-                        val = sel_shares * curr_price
-                    gain_loss_pct = (gain_loss / cost * 100) if cost > 0 else 0.0
-                    
-                    stock_info = stocks_df[stocks_df['symbol'] == sel_ticker]
-                    last_div = float(stock_info.iloc[0]['lastDividend']) if not stock_info.empty else 0.0
-                    annual_div_per_share = last_div * 4
-                    if sel_pos == "SHORT":
-                        annual_div = -sel_shares * annual_div_per_share
-                    else:
-                        annual_div = sel_shares * annual_div_per_share
-                    
+                sel_ticker = pf_display_df.iloc[selected_idx]['티커']
+                sel_row = portfolio_df[portfolio_df['symbol'] == sel_ticker].iloc[0]
+                sel_shares = float(sel_row['shares'])
+                sel_price = float(sel_row['purchase_price'])
+                sel_reason = str(sel_row['entry_reason']) if pd.notna(sel_row['entry_reason']) else ""
+                sel_pos = str(sel_row.get('position_type', 'LONG')).upper()
+                sel_pos_id = str(sel_row.get('position_id', '')).strip()
+                
+                curr_price = close_prices.get(sel_ticker, 0.0)
+                if curr_price == 0.0:
+                    curr_price = sel_price
+                cost = sel_shares * sel_price
+                
+                if sel_pos == "SHORT":
+                    gain_loss = sel_shares * (sel_price - curr_price)
+                    val = cost + gain_loss
+                else:
+                    gain_loss = sel_shares * (curr_price - sel_price)
+                    val = sel_shares * curr_price
+                gain_loss_pct = (gain_loss / cost * 100) if cost > 0 else 0.0
+                
+                stock_info = stocks_df[stocks_df['symbol'] == sel_ticker]
+                last_div = float(stock_info.iloc[0]['lastDividend']) if not stock_info.empty else 0.0
+                annual_div_per_share = last_div * 4
+                if sel_pos == "SHORT":
+                    annual_div = -sel_shares * annual_div_per_share
+                else:
+                    annual_div = sel_shares * annual_div_per_share
+                
                 render_hub_portfolio_panel(sel_ticker, sel_pos, val, cost, sel_price, curr_price, gain_loss, gain_loss_pct, annual_div, sel_shares, sel_reason, sel_pos_id)
             else:
                 st.info("💡 위의 포트폴리오 표에서 자산 행을 클릭하시면 즉시 상세 차트 분석 이동 및 추가 진입/청산 처리를 할 수 있는 제어 패널이 나타납니다.")
@@ -359,12 +373,11 @@ def render_page():
             )
             
             selected_wl_rows = event_wl.selection.rows
-            if selected_wl_rows:
+            if selected_wl_rows and selected_wl_rows[0] < len(wl_table_df):
                 selected_idx = selected_wl_rows[0]
-                if selected_idx < len(wl_table_df):
-                    sel_ticker = wl_table_df.iloc[selected_idx]['티커']
-                    sel_group = wl_table_df.iloc[selected_idx]['관심 그룹']
-                    
+                sel_ticker = wl_table_df.iloc[selected_idx]['티커']
+                sel_group = wl_table_df.iloc[selected_idx]['관심 그룹']
+                
                 try:
                     price_data = yf.download(sel_ticker, period="1d", progress=False)
                     if not price_data.empty:
@@ -406,11 +419,10 @@ def render_page():
             )
             
             selected_al_rows = event_al.selection.rows
-            if selected_al_rows:
+            if selected_al_rows and selected_al_rows[0] < len(al_display):
                 sel_idx = selected_al_rows[0]
-                if sel_idx < len(al_display):
-                    sel_ticker = al_display.iloc[sel_idx]['티커']
-                    sel_cond = alerts_df.iloc[sel_idx]['condition_type']
+                sel_ticker = al_display.iloc[sel_idx]['티커']
+                sel_cond = alerts_df.iloc[sel_idx]['condition_type']
                 
                 c_al_act1, c_al_act2 = st.columns(2)
                 with c_al_act1:
@@ -530,7 +542,7 @@ def render_page():
             )
             
             selected_th_rows = event_th.selection.rows
-            if selected_th_rows:
+            if selected_th_rows and selected_th_rows[0] < len(hist_display_df):
                 sel_idx = selected_th_rows[0]
                 if sel_idx < len(hist_display_df):
                     sel_row = hist_display_df.iloc[sel_idx]
@@ -616,12 +628,18 @@ def render_page():
                     
                     closed_page_id = nh.get_closed_position_page_id(sel_ticker, sel_created, sel_pos)
                     if closed_page_id:
-                        notion_page_uuid = closed_page_id.replace("-", "")
-                        st.link_button(
-                            f"📓 {sel_ticker} ({sel_pos}) 노션 투자 저널 바로가기",
-                            f"https://notion.so/{notion_page_uuid}",
-                            use_container_width=True
-                        )
+                        if not st.session_state.get("is_admin", False):
+                            st.info("💡 데모 모드에서는 실제 노션 페이지로 이동하는 대신, 아래에 노션으로 동기화된 가상의 저널 내용을 표출합니다.")
+                            with st.expander(f"📓 {sel_ticker} ({sel_pos}) 노션 투자 저널 상세 보기 (데모)", expanded=True):
+                                journal_text = nh.get_page_content_text(closed_page_id)
+                                st.markdown(journal_text)
+                        else:
+                            notion_page_uuid = closed_page_id.replace("-", "")
+                            st.link_button(
+                                f"📓 {sel_ticker} ({sel_pos}) 노션 투자 저널 바로가기",
+                                f"https://notion.so/{notion_page_uuid}",
+                                use_container_width=True
+                            )
                     else:
                         st.caption("ℹ️ 해당 거래의 상세 노션 투자 저널 페이지를 찾을 수 없습니다.")
                         

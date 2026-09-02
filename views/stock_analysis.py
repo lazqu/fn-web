@@ -245,7 +245,7 @@ def render_chart_section(ticker, df_price, df_stat, df_div_period, df_com, start
             vertical_spacing=0.07,
             subplot_titles=(
                 f"{ticker} 주가 (종가)", 
-                "배당수익률(DFS)", 
+                "배당수익률(DY)", 
                 "배당금 (Adjusted Dividend)", 
                 "배당 성장률 (Dividend Growth)",
                 "주가 비교 (Close vs Adj Close)"

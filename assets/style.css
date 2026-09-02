@@ -30,8 +30,15 @@ div.st-key-top_header_container {
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3) !important;
     width: 100% !important;
     margin-top: -3.5rem !important; /* 상단 빈 여백 보정 */
-    margin-bottom: 1.5rem !important;
-    padding: 0.9rem 1.5rem !important; /* 좌우 대칭 패딩 */
+    margin-bottom: 0.8rem !important;
+    padding: 1.8rem 2.0rem !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+}
+
+div.st-key-top_header_container * {
+    margin-bottom: 0px !important;
 }
 
 /* Columns padding removal inside floating header */
@@ -44,10 +51,22 @@ div.st-key-top_header_container h2 {
     color: #38bdf8 !important;
     font-weight: 800 !important;
     margin: 0 !important;
-    line-height: 40px !important;
-    font-size: clamp(1.2rem, 2.5vw, 1.75rem) !important;
+    line-height: 1.0 !important;
+    font-size: clamp(1.6rem, 2.8vw, 2.2rem) !important;
     white-space: nowrap !important;
     letter-spacing: -0.02em !important;
+}
+
+/* 4.5. Page-specific Headers & Subheaders Scaling */
+div[data-testid="stMarkdownContainer"] h2:not(.st-key-top_header_container h2) {
+    font-size: clamp(1.2rem, 2vw, 1.5rem) !important;
+    font-weight: 700 !important;
+    margin-top: 1.0rem !important;
+    margin-bottom: 0.8rem !important;
+}
+div[data-testid="stMarkdownContainer"] h3 {
+    font-size: clamp(1.0rem, 1.6vw, 1.2rem) !important;
+    font-weight: 600 !important;
 }
 
 /* Columns Alignment settings */

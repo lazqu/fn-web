@@ -3,6 +3,40 @@ import datetime
 import requests
 import streamlit as st
 
+def init_sandbox_journals():
+    """게스트 모드일 때 사용할 세션 기반 가상 노션 데이터베이스를 초기화하고 mock 포트폴리오 저널을 시딩합니다."""
+    if "sandbox_notion_journals" not in st.session_state:
+        st.session_state.sandbox_notion_journals = {
+            "mock_page_pos_schd_long": {
+                "ticker": "SCHD",
+                "status": "진입중",
+                "avg_price": 75.50,
+                "shares": 100.0,
+                "position_type": "LONG",
+                "orders": [
+                    {"action": "진입", "shares": 100.0, "price": 75.50, "reason": "안정적 배당 성장", "date": "2026-08-01 12:00:00"}
+                ],
+                "feedback": "",
+                "return_rate": 0.0,
+                "return_val": 0.0,
+                "created_at": "2026-08-01 12:00:00"
+            },
+            "mock_page_pos_o_long": {
+                "ticker": "O",
+                "status": "진입중",
+                "avg_price": 55.20,
+                "shares": 50.0,
+                "position_type": "LONG",
+                "orders": [
+                    {"action": "진입", "shares": 50.0, "price": 55.20, "reason": "월배당 확보", "date": "2026-08-03 12:00:00"}
+                ],
+                "feedback": "",
+                "return_rate": 0.0,
+                "return_val": 0.0,
+                "created_at": "2026-08-03 12:00:00"
+            }
+        }
+
 def get_notion_headers():
     token = st.secrets["notion"]["token"]
     return {
@@ -16,6 +50,13 @@ def get_active_position(ticker, position_type="LONG"):
     포지션 DB에서 해당 티커와 포지션 구분이 일치하고 '상태'가 '진입중'인 포지션 페이지의 ID를 찾아 반환합니다.
     존재하지 않으면 None을 반환합니다.
     """
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_journals()
+        for page_id, journal in st.session_state.sandbox_notion_journals.items():
+            if journal["ticker"].upper() == ticker.strip().upper() and journal["position_type"].upper() == position_type.strip().upper() and journal["status"] == "진입중":
+                return page_id
+        return None
+
     database_id = st.secrets["notion"]["database_id"]
     url = f"https://api.notion.com/v1/databases/{database_id}/query"
     headers = get_notion_headers()
@@ -75,6 +116,15 @@ def get_closed_position_page_id(ticker, created_at_date, position_type="LONG"):
     """
     포지션 DB에서 해당 티커, 포지션 타입, 최초 진입일이 일치하는 페이지 ID를 찾아 반환합니다.
     """
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_journals()
+        date_str = str(created_at_date).split(" ")[0].strip()
+        for page_id, journal in st.session_state.sandbox_notion_journals.items():
+            if journal["ticker"].upper() == ticker.strip().upper() and journal["position_type"].upper() == position_type.strip().upper() and journal["status"] == "청산완료":
+                if date_str in journal["created_at"]:
+                    return page_id
+        return None
+
     database_id = st.secrets["notion"]["database_id"]
     url = f"https://api.notion.com/v1/databases/{database_id}/query"
     headers = get_notion_headers()
@@ -136,6 +186,17 @@ def get_position_performance(page_id):
     해당 매매 기록 페이지의 현재까지 누적된 '실현 손익', '실현 수익률' 및 '평균 매수 단가' 값을 읽어옵니다.
     실패하거나 속성이 없으면 (0.0, 0.0, 0.0)을 반환합니다.
     """
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_journals()
+        journal = st.session_state.sandbox_notion_journals.get(page_id)
+        if journal:
+            return (
+                journal.get("return_val", 0.0),
+                journal.get("return_rate", 0.0),
+                journal.get("avg_price", 0.0)
+            )
+        return 0.0, 0.0, 0.0
+
     url = f"https://api.notion.com/v1/pages/{page_id}"
     headers = get_notion_headers()
     try:
@@ -165,6 +226,33 @@ def create_position_journal(ticker, price, entry_reason, position_type="LONG"):
     """
     최초 진입 시 노션 DB에 새로운 저널(매매 기록) 페이지를 생성하고 본문 뼈대를 만듭니다.
     """
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_journals()
+        page_id = f"mock_page_pos_{ticker.lower()}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        st.session_state.sandbox_notion_journals[page_id] = {
+            "ticker": ticker.upper(),
+            "status": "진입중",
+            "avg_price": float(price),
+            "shares": 0.0,
+            "position_type": position_type.upper(),
+            "orders": [],
+            "feedback": "",
+            "return_rate": 0.0,
+            "return_val": 0.0,
+            "created_at": now_str
+        }
+        # 최초 진입 이력도 order에 추가
+        if entry_reason:
+            st.session_state.sandbox_notion_journals[page_id]["orders"].append({
+                "action": "진입",
+                "shares": 0.0,
+                "price": float(price),
+                "reason": entry_reason,
+                "date": now_str
+            })
+        return page_id
+
     database_id = st.secrets["notion"]["database_id"]
     url = "https://api.notion.com/v1/pages"
     headers = get_notion_headers()
@@ -238,6 +326,20 @@ def add_order_to_journal(page_id, action_text, shares, price, reason):
     """
     페이지 본문에 진입/청산 개별 거래 내역 텍스트를 추가합니다.
     """
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_journals()
+        journal = st.session_state.sandbox_notion_journals.get(page_id)
+        if journal:
+            now_str = datetime.datetime.now().strftime("%m/%d %H:%M")
+            journal["orders"].append({
+                "action": action_text,
+                "shares": float(shares),
+                "price": float(price),
+                "reason": reason,
+                "date": now_str
+            })
+        return True
+
     url = f"https://api.notion.com/v1/blocks/{page_id}/children"
     headers = get_notion_headers()
     
@@ -279,6 +381,22 @@ def update_position_properties(page_id, avg_price=None, shares=None, status="진
     포지션 상태와 최종 성적(실현 수익률, 실현 손익) 등의 메타데이터 속성들을 업데이트합니다.
     없는 속성 필드로 인한 API 에러가 나면 Safe Fallback 처리합니다.
     """
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_journals()
+        journal = st.session_state.sandbox_notion_journals.get(page_id)
+        if journal:
+            if avg_price is not None:
+                journal["avg_price"] = float(avg_price)
+            if shares is not None:
+                journal["shares"] = float(shares)
+            if status is not None:
+                journal["status"] = status
+            if return_rate is not None:
+                journal["return_rate"] = float(return_rate)
+            if return_val is not None:
+                journal["return_val"] = float(return_val)
+        return True
+
     url = f"https://api.notion.com/v1/pages/{page_id}"
     headers = get_notion_headers()
     
@@ -333,6 +451,14 @@ def close_position_journal(page_id, return_rate, return_val, feedback, adherence
     """
     청산 완료 시 최종 피드백 본문 텍스트를 노션에 추가하고 상태를 청산완료로 닫습니다.
     """
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_journals()
+        update_position_properties(page_id, status="청산완료", return_rate=return_rate, return_val=return_val, adherence=adherence)
+        journal = st.session_state.sandbox_notion_journals.get(page_id)
+        if journal:
+            journal["feedback"] = feedback
+        return True
+
     # 1. 속성 정보 청산 마감 처리
     update_position_properties(page_id, status="청산완료", return_rate=return_rate, return_val=return_val, adherence=adherence)
     
@@ -370,6 +496,26 @@ def get_page_content_text(page_id):
     """
     페이지 본문의 텍스트 내용들을 취합하여 반환합니다. (최초 분석 및 누적 매매/코멘트 타임라인 전체)
     """
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_journals()
+        journal = st.session_state.sandbox_notion_journals.get(page_id)
+        if journal:
+            content = f"### 📓 {journal['ticker']} ({journal['position_type']}) 가상 투자 저널\n\n"
+            content += f"- **상태**: {journal['status']}\n"
+            content += f"- **평단가**: ${journal['avg_price']:,.2f}\n"
+            content += f"- **수량**: {journal['shares']:,.1f}주\n"
+            content += f"- **생성일**: {journal['created_at']}\n"
+            if journal['status'] == "청산완료":
+                content += f"- **최종 수익률**: {journal['return_rate']:+.2f}%\n"
+                content += f"- **최종 실현손익**: ${journal['return_val']:+,.2f}\n"
+                content += f"- **청산 피드백**: {journal['feedback']}\n"
+            content += "\n#### ⛓️ 체결 이력 타임라인\n"
+            for o in journal['orders']:
+                reason_part = f" - *근거: {o['reason']}*" if o['reason'] else ""
+                content += f"- **[{o['action']}]** {o['date']} | {o['shares']:,.1f}주 (@${o['price']:,.2f}){reason_part}\n"
+            return content
+        return "저널 내용이 없습니다."
+
     url = f"https://api.notion.com/v1/blocks/{page_id}/children"
     headers = get_notion_headers()
     try:
@@ -403,6 +549,8 @@ def backup_notion_to_local(target_dir="docs/journals"):
     Notion 데이터베이스에 쌓인 모든 페이지를 로컬 마크다운 파일로 다운로드합니다.
     (페이지네이션 지원)
     """
+    if not st.session_state.get("is_admin", False):
+        return
     os.makedirs(target_dir, exist_ok=True)
     database_id = st.secrets["notion"]["database_id"]
     url = f"https://api.notion.com/v1/databases/{database_id}/query"
@@ -495,7 +643,9 @@ def sync_entry_to_notion(ticker, entry_price, entry_shares, final_price, final_s
             return True
         return False
     except Exception as e:
-        st.warning(f"노션 저널 연동 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"노션 저널 연동 실패: {e}")
         return False
 
 
@@ -530,5 +680,7 @@ def sync_exit_to_notion(ticker, exit_price, exit_shares, exit_reason, position_t
             return True
         return False
     except Exception as e:
-        st.warning(f"노션 저널 청산 연동 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        print(f"노션 저널 청산 연동 실패: {e}")
         return False

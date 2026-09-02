@@ -4,6 +4,82 @@ from gspread_dataframe import set_with_dataframe, get_as_dataframe
 import pandas as pd
 import datetime
 
+# --- 게스트 모드 글로벌 설정 플래그 ---
+SHOW_REAL_DATA_TO_GUEST = False
+
+def init_sandbox_data():
+    """게스트 모드일 때 사용할 세션 기반 샌드박스 데이터프레임들을 초기화합니다."""
+    if "sandbox_data" not in st.session_state:
+        st.session_state.sandbox_data = {}
+        
+        tables = ["stocks", "comments", "watchlist", "portfolio", "alerts", "trading_history", "order_history"]
+        
+        for table in tables:
+            # 1. 실제 데이터를 보여주고 안전하게 쓰기만 막는 모드이거나, 'stocks'(공용 종목 정보) 테이블인 경우 실제 데이터 로드 시도
+            if SHOW_REAL_DATA_TO_GUEST or table == "stocks":
+                try:
+                    sh_conn = get_sh()
+                    if sh_conn:
+                        ws = sh_conn.worksheet(table)
+                        df = get_as_dataframe(ws, evaluate_formulas=True)
+                        if table == "stocks":
+                            df = _normalize_stocks_df(df)
+                        else:
+                            df = df.dropna(how='all')
+                        st.session_state.sandbox_data[table] = df
+                        continue
+                except Exception:
+                    pass
+            
+            # 2. 로컬 CSV 백업 파일 로딩 시도
+            mock_file = f"assets/mock/mock_{table}.csv"
+            import os
+            if os.path.exists(mock_file):
+                try:
+                    df = pd.read_csv(mock_file)
+                    st.session_state.sandbox_data[table] = df
+                    continue
+                except Exception:
+                    pass
+                    
+            # 3. 디폴트 가상 초기 데이터 셋업 (CSV 파일이 없거나 구글 시트 연결 실패 시 대비)
+            if table == "stocks":
+                st.session_state.sandbox_data[table] = pd.DataFrame([
+                    {"symbol": "SCHD", "companyName": "Schwab U.S. Dividend Equity ETF", "lastDividend": 0.74, "stock_type": "ETF", "group": "고배당 ETF", "weight": 2.5, "marketCap": "50B", "dividendYield": 3.4, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "JEPI", "companyName": "JPMorgan Equity Premium Income ETF", "lastDividend": 0.35, "stock_type": "ETF", "group": "고배당 ETF", "weight": 2.5, "marketCap": "30B", "dividendYield": 7.2, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "O", "companyName": "Realty Income Corp", "lastDividend": 0.263, "stock_type": "STOCK", "group": "리츠", "weight": 1.5, "marketCap": "40B", "dividendYield": 5.6, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "AAPL", "companyName": "Apple Inc.", "lastDividend": 0.25, "stock_type": "STOCK", "group": "기술주", "weight": 5.0, "marketCap": "3T", "dividendYield": 0.5, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "MSFT", "companyName": "Microsoft Corp.", "lastDividend": 0.75, "stock_type": "STOCK", "group": "기술주", "weight": 5.0, "marketCap": "3T", "dividendYield": 0.8, "updated_at": "2026-08-20 12:00:00"},
+                    {"symbol": "KO", "companyName": "Coca-Cola Co.", "lastDividend": 0.485, "stock_type": "STOCK", "group": "배당귀족", "weight": 2.0, "marketCap": "270B", "dividendYield": 3.1, "updated_at": "2026-08-20 12:00:00"}
+                ])
+            elif table == "comments":
+                st.session_state.sandbox_data[table] = pd.DataFrame(columns=["symbol", "content", "created_at", "updated_at"])
+            elif table == "watchlist":
+                st.session_state.sandbox_data[table] = pd.DataFrame([
+                    {"symbol": "SCHD", "group_name": "고배당 ETF", "created_at": "2026-08-01 12:00:00"},
+                    {"symbol": "JEPI", "group_name": "고배당 ETF", "created_at": "2026-08-02 12:00:00"},
+                    {"symbol": "O", "group_name": "리츠", "created_at": "2026-08-03 12:00:00"},
+                    {"symbol": "AAPL", "group_name": "기술주", "created_at": "2026-08-04 12:00:00"},
+                    {"symbol": "MSFT", "group_name": "기술주", "created_at": "2026-08-05 12:00:00"}
+                ])
+            elif table == "portfolio":
+                st.session_state.sandbox_data[table] = pd.DataFrame([
+                    {"symbol": "SCHD", "shares": 100.0, "purchase_price": 75.50, "entry_reason": "안정적 배당 성장", "position_type": "LONG", "created_at": "2026-08-01 12:00:00", "position_id": "pos_schd_long"},
+                    {"symbol": "O", "shares": 50.0, "purchase_price": 55.20, "entry_reason": "월배당 확보", "position_type": "LONG", "created_at": "2026-08-03 12:00:00", "position_id": "pos_o_long"}
+                ])
+            elif table == "alerts":
+                st.session_state.sandbox_data[table] = pd.DataFrame([
+                    {"symbol": "O", "target_price": 50.00, "condition_type": "below", "is_triggered": "FALSE", "created_at": "2026-08-04 12:00:00"},
+                    {"symbol": "AAPL", "target_price": 200.00, "condition_type": "above", "is_triggered": "FALSE", "created_at": "2026-08-05 12:00:00"}
+                ])
+            elif table == "trading_history":
+                st.session_state.sandbox_data[table] = pd.DataFrame(columns=["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date", "created_at", "position_id"])
+            elif table == "order_history":
+                st.session_state.sandbox_data[table] = pd.DataFrame([
+                    {"symbol": "SCHD", "action_type": "BUY", "shares": 100.0, "price": 75.50, "reason": "안정적 배당 성장", "position_type": "LONG", "trade_date": "2026-08-01 12:00:00", "position_id": "pos_schd_long"},
+                    {"symbol": "O", "action_type": "BUY", "shares": 50.0, "price": 55.20, "reason": "월배당 확보", "position_type": "LONG", "trade_date": "2026-08-03 12:00:00", "position_id": "pos_o_long"}
+                ])
+
 STOCKS_COLUMNS = [
     "symbol",
     "companyName",
@@ -101,6 +177,10 @@ def _ensure_sheet_schema(sheet_name, expected_columns):
 
 def init_sheets():
     """앱 구동 시 필요한 6개의 시트가 없으면 생성하고 스키마를 보정합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -129,6 +209,10 @@ def init_sheets():
 # --- 1. 종목 캐시 (stocks) 관련 ---
 def get_stocks():
     """stocks 시트에서 전체 종목 데이터를 DataFrame으로 조회합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        return _normalize_stocks_df(st.session_state.sandbox_data["stocks"])
+
     sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=STOCKS_COLUMNS)
@@ -141,6 +225,11 @@ def get_stocks():
 
 def save_stocks(df):
     """stocks 시트에 새로운 종목 리스트를 덮어씁니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        st.session_state.sandbox_data["stocks"] = _normalize_stocks_df(df)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -173,6 +262,14 @@ def save_stocks(df):
 # --- 2. 코멘트 (comments) 관련 ---
 def get_comment(symbol):
     """특정 종목의 최신 코멘트를 구글 시트에서 가져옵니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["comments"]
+        match = df[df["symbol"].str.strip().str.upper() == symbol.strip().upper()]
+        if not match.empty:
+            return match.iloc[-1].get("content", "")
+        return ""
+
     sh = get_sh()
     if not sh:
         return ""
@@ -186,6 +283,16 @@ def get_comment(symbol):
 
 def save_comment(symbol, content):
     """코멘트를 항상 새로 추가하여 누적 저장합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["comments"]
+        symbol = symbol.strip().upper()
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        new_row = pd.DataFrame([{"symbol": symbol, "content": content, "created_at": now_str, "updated_at": now_str}])
+        dfs = [d for d in [df, new_row] if not d.empty]
+        st.session_state.sandbox_data["comments"] = pd.concat(dfs).reset_index(drop=True)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -207,6 +314,22 @@ def save_comment(symbol, content):
 
 def get_comments_list(symbol):
     """특정 종목의 모든 코멘트 리스트를 최초 작성일 최신순으로 가져옵니다 (시트 행 번호 포함)."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["comments"]
+        comments = []
+        for idx, row in df.iterrows():
+            if str(row["symbol"]).strip().upper() == symbol.strip().upper():
+                created_at = row.get("created_at", "")
+                comments.append({
+                    "row_num": idx + 2,  # 헤더가 1행이므로 +2
+                    "content": row.get("content", ""),
+                    "created_at": created_at,
+                    "updated_at": row.get("updated_at", created_at)
+                })
+        comments.sort(key=lambda x: str(x.get("created_at", "")), reverse=True)
+        return comments
+
     sh = get_sh()
     if not sh:
         return []
@@ -234,6 +357,17 @@ def get_comments_list(symbol):
 
 def update_comment_by_row(row_num, new_content):
     """특정 행 번호의 코멘트 내용을 수정합니다 (최초 작성일은 보존하고 수정일만 갱신)."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["comments"]
+        idx = int(row_num) - 2
+        if 0 <= idx < len(df):
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            df.at[idx, "content"] = new_content
+            df.at[idx, "updated_at"] = now_str
+            st.session_state.sandbox_data["comments"] = df
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -245,6 +379,14 @@ def update_comment_by_row(row_num, new_content):
 
 def delete_comment_by_row(row_num):
     """특정 행 번호의 코멘트 행을 삭제합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["comments"]
+        idx = int(row_num) - 2
+        if 0 <= idx < len(df):
+            st.session_state.sandbox_data["comments"] = df.drop(index=idx).reset_index(drop=True)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -255,6 +397,11 @@ def delete_comment_by_row(row_num):
 # --- 3. 관심 종목 (watchlist) 관련 ---
 def get_watchlist():
     """관심 종목 리스트를 단순히 티커 목록만 가져옵니다 (호환성 유지)."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["watchlist"]
+        return df["symbol"].dropna().astype(str).str.strip().str.upper().tolist()
+
     sh = get_sh()
     if not sh:
         return []
@@ -270,6 +417,14 @@ def get_watchlist():
 
 def get_watchlist_details():
     """관심 종목 리스트를 상세 정보(그룹 포함) DataFrame으로 가져옵니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["watchlist"].copy()
+        if "group_name" not in df.columns:
+            df["group_name"] = "기본 그룹"
+        df["group_name"] = df["group_name"].fillna("기본 그룹").astype(str).str.strip()
+        return df
+
     sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=["symbol", "group_name", "created_at"])
@@ -285,6 +440,24 @@ def get_watchlist_details():
 
 def add_to_watchlist(symbol, group_name="기본 그룹"):
     """관심 종목의 특정 그룹에 추가합니다. (다중 그룹 소속 지원)"""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["watchlist"]
+        symbol = symbol.strip().upper()
+        group_name = group_name.strip() if group_name else "기본 그룹"
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # 이미 동일한 symbol과 group_name 쌍이 존재하는지 확인
+        match = df[(df["symbol"] == symbol) & (df["group_name"].str.upper() == group_name.upper())]
+        if not match.empty:
+            idx = match.index[0]
+            df.at[idx, "created_at"] = now_str
+        else:
+            new_row = pd.DataFrame([{"symbol": symbol, "group_name": group_name, "created_at": now_str}])
+            dfs = [d for d in [df, new_row] if not d.empty]
+            st.session_state.sandbox_data["watchlist"] = pd.concat(dfs).reset_index(drop=True)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -314,6 +487,17 @@ def add_to_watchlist(symbol, group_name="기본 그룹"):
 
 def remove_from_watchlist(symbol, group_name=None):
     """관심 종목에서 제거합니다. group_name이 지정되면 특정 그룹에서만 제거하고, 없으면 모든 그룹에서 제거합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["watchlist"]
+        symbol = symbol.strip().upper()
+        if group_name is None:
+            df = df[df["symbol"] != symbol]
+        else:
+            df = df[~((df["symbol"] == symbol) & (df["group_name"].str.upper() == group_name.strip().upper()))]
+        st.session_state.sandbox_data["watchlist"] = df.reset_index(drop=True)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -341,6 +525,19 @@ def remove_from_watchlist(symbol, group_name=None):
 def get_portfolio():
     """포트폴리오 리스트를 DataFrame으로 가져옵니다."""
     expected_cols = ["symbol", "shares", "purchase_price", "entry_reason", "position_type", "created_at", "position_id"]
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["portfolio"].copy()
+        for col in expected_cols:
+            if col not in df.columns:
+                df[col] = ""
+        df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
+        df["entry_reason"] = df["entry_reason"].fillna("").astype(str).str.strip()
+        df["position_type"] = df["position_type"].fillna("LONG").astype(str).str.strip().str.upper()
+        df["shares"] = pd.to_numeric(df["shares"]).fillna(0.0)
+        df["purchase_price"] = pd.to_numeric(df["purchase_price"]).fillna(0.0)
+        return df
+
     sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=expected_cols)
@@ -362,6 +559,38 @@ def get_portfolio():
 
 def save_portfolio(symbol, shares, purchase_price, entry_reason="", position_type="LONG", position_id=None):
     """포트폴리오 아이템을 추가하거나 수정합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["portfolio"]
+        symbol = symbol.strip().upper()
+        position_type = position_type.strip().upper() if position_type else "LONG"
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        match = df[(df["symbol"] == symbol) & (df["position_type"] == position_type)]
+        if not match.empty:
+            idx = match.index[0]
+            df.at[idx, "shares"] = float(shares)
+            df.at[idx, "purchase_price"] = float(purchase_price)
+            df.at[idx, "entry_reason"] = entry_reason
+            if position_id:
+                df.at[idx, "position_id"] = position_id
+            st.session_state.sandbox_data["portfolio"] = df
+        else:
+            if not position_id:
+                position_id = f"pos_{symbol.lower()}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+            new_row = pd.DataFrame([{
+                "symbol": symbol,
+                "shares": float(shares),
+                "purchase_price": float(purchase_price),
+                "entry_reason": entry_reason,
+                "position_type": position_type,
+                "created_at": now_str,
+                "position_id": position_id
+            }])
+            dfs = [d for d in [df, new_row] if not d.empty]
+            st.session_state.sandbox_data["portfolio"] = pd.concat(dfs).reset_index(drop=True)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -398,6 +627,14 @@ def save_portfolio(symbol, shares, purchase_price, entry_reason="", position_typ
 
 def remove_from_portfolio(symbol, position_type="LONG"):
     """포트폴리오에서 아이템을 제거합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["portfolio"]
+        symbol = symbol.strip().upper()
+        position_type = position_type.strip().upper() if position_type else "LONG"
+        st.session_state.sandbox_data["portfolio"] = df[~((df["symbol"] == symbol) & (df["position_type"] == position_type))].reset_index(drop=True)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -418,6 +655,15 @@ def remove_from_portfolio(symbol, position_type="LONG"):
 # --- 5. 조건부 타겟 (alerts) 관련 ---
 def get_alerts():
     """조건부 타겟 가격 알림 설정 목록을 DataFrame으로 조회합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["alerts"].copy()
+        df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
+        df["target_price"] = pd.to_numeric(df["target_price"], errors="coerce")
+        df["condition_type"] = df["condition_type"].fillna("above").astype(str).str.strip()
+        df["is_triggered"] = df["is_triggered"].astype(str).str.upper() == "TRUE"
+        return df
+
     sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=["symbol", "target_price", "condition_type", "is_triggered", "created_at"])
@@ -437,6 +683,31 @@ def get_alerts():
 
 def save_alert(symbol, target_price, condition_type="above"):
     """조건부 타겟을 설정/저장합니다. (동일 조건이 이미 존재하면 덮어씀)"""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["alerts"]
+        symbol = symbol.strip().upper()
+        condition_type = condition_type.strip()
+        now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        match = df[(df["symbol"] == symbol) & (df["condition_type"] == condition_type)]
+        if not match.empty:
+            idx = match.index[0]
+            df.at[idx, "target_price"] = float(target_price)
+            df.at[idx, "is_triggered"] = "FALSE"
+            df.at[idx, "created_at"] = now_str
+        else:
+            new_row = pd.DataFrame([{
+                "symbol": symbol,
+                "target_price": float(target_price),
+                "condition_type": condition_type,
+                "is_triggered": "FALSE",
+                "created_at": now_str
+            }])
+            dfs = [d for d in [df, new_row] if not d.empty]
+            st.session_state.sandbox_data["alerts"] = pd.concat(dfs).reset_index(drop=True)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -466,6 +737,14 @@ def save_alert(symbol, target_price, condition_type="above"):
 
 def remove_alert(symbol, condition_type):
     """특정 조건부 타겟을 감시 목록에서 삭제합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["alerts"]
+        symbol = symbol.strip().upper()
+        condition_type = condition_type.strip()
+        st.session_state.sandbox_data["alerts"] = df[~((df["symbol"] == symbol) & (df["condition_type"] == condition_type))].reset_index(drop=True)
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -484,6 +763,17 @@ def remove_alert(symbol, condition_type):
 
 def set_alert_triggered(symbol, condition_type, is_triggered=True):
     """알림이 트리거되었음을 마킹합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["alerts"]
+        symbol = symbol.strip().upper()
+        condition_type = condition_type.strip()
+        match = df[(df["symbol"] == symbol) & (df["condition_type"] == condition_type)]
+        if not match.empty:
+            idx = match.index[0]
+            df.at[idx, "is_triggered"] = "TRUE" if is_triggered else "FALSE"
+        return
+
     sh = get_sh()
     if not sh:
         return
@@ -505,6 +795,16 @@ def set_alert_triggered(symbol, condition_type, is_triggered=True):
 def get_trading_history():
     """청산 완료된 매매기록 목록을 DataFrame으로 조회합니다."""
     expected_cols = ["symbol", "shares", "purchase_price", "sell_price", "entry_reason", "exit_reason", "position_type", "trade_date", "created_at"]
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["trading_history"].copy()
+        df["symbol"] = df["symbol"].astype(str).str.strip().str.upper()
+        if "position_type" in df.columns:
+            df["position_type"] = df["position_type"].fillna("LONG").astype(str).str.strip().str.upper()
+        else:
+            df["position_type"] = "LONG"
+        return df
+
     sh = get_sh()
     if not sh:
         return pd.DataFrame(columns=expected_cols)
@@ -520,6 +820,54 @@ def get_trading_history():
 
 def liquidate_portfolio(symbol, exit_shares, exit_price, exit_reason=""):
     """포트폴리오 자산을 일부 또는 전부 청산하고 매매기록(trading_history)으로 이관하며 주문 원장에 기록하여 잔고를 재계산합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        symbol = symbol.strip().upper()
+        exit_shares = float(exit_shares)
+        exit_price = float(exit_price)
+
+        # 1. 포트폴리오에서 자산 정보 확인
+        portfolio_df = get_portfolio()
+        match_rows = portfolio_df[portfolio_df["symbol"] == symbol]
+        if match_rows.empty:
+            return False
+
+        row = match_rows.iloc[0]
+        current_shares = float(row["shares"])
+        purchase_price = float(row["purchase_price"])
+        entry_reason = str(row["entry_reason"]) if pd.notna(row["entry_reason"]) else ""
+        position_type = str(row.get("position_type", "LONG")).strip().upper()
+
+        if exit_shares > current_shares:
+            exit_shares = current_shares
+
+        # 2. 매매기록(trading_history)에 저장
+        df_hist = st.session_state.sandbox_data["trading_history"]
+        trade_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        created_at = str(row["created_at"]) if ("created_at" in row and pd.notna(row["created_at"])) else trade_date
+        position_id = str(row["position_id"]).strip() if ("position_id" in row and pd.notna(row["position_id"])) else ""
+        
+        new_row = pd.DataFrame([{
+            "symbol": symbol,
+            "shares": exit_shares,
+            "purchase_price": purchase_price,
+            "sell_price": exit_price,
+            "entry_reason": entry_reason,
+            "exit_reason": exit_reason,
+            "position_type": position_type,
+            "trade_date": trade_date,
+            "created_at": created_at,
+            "position_id": position_id
+        }])
+        dfs = [d for d in [df_hist, new_row] if not d.empty]
+        st.session_state.sandbox_data["trading_history"] = pd.concat(dfs).reset_index(drop=True)
+
+        # 3. 주문 원장(order_history)에 청산 주문 적재 (이를 통해 잔고가 자동 재계산됨)
+        action_type = "BUY" if position_type == "SHORT" else "SELL"
+        record_order(symbol, action_type, exit_shares, exit_price, exit_reason, position_type, position_id=position_id)
+
+        return True
+
     sh = get_sh()
     if not sh:
         return False
@@ -560,6 +908,73 @@ def liquidate_portfolio(symbol, exit_shares, exit_price, exit_reason=""):
 
 def recalculate_position(symbol, position_type):
     """주문 내역(order_history)의 모든 건을 시간순으로 누적 롤업 가중평균하여 portfolio 및 notion 정보를 동기화 재계산합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        symbol = symbol.strip().upper()
+        position_type = position_type.strip().upper()
+
+        df_ord = st.session_state.sandbox_data["order_history"].copy()
+        df_ord["symbol"] = df_ord["symbol"].astype(str).str.strip().str.upper()
+        df_ord["position_type"] = df_ord["position_type"].fillna("LONG").astype(str).str.strip().str.upper()
+        df_ord["shares"] = pd.to_numeric(df_ord["shares"], errors="coerce").fillna(0.0)
+        df_ord["price"] = pd.to_numeric(df_ord["price"], errors="coerce").fillna(0.0)
+
+        df_match = df_ord[(df_ord["symbol"] == symbol) & (df_ord["position_type"] == position_type)].copy()
+        if not df_match.empty:
+            df_match = df_match.sort_values(by="trade_date", ascending=True)
+
+        shares = 0.0
+        purchase_price = 0.0
+        entry_reason = ""
+        pos_id = None
+
+        up_action = "SELL" if position_type == "SHORT" else "BUY"
+        down_action = "BUY" if position_type == "SHORT" else "SELL"
+
+        for _, row in df_match.iterrows():
+            action = str(row["action_type"]).upper()
+            o_shares = float(row["shares"])
+            o_price = float(row["price"])
+            o_reason = str(row["reason"]) if pd.notna(row["reason"]) else ""
+            
+            if "position_id" in row and pd.notna(row["position_id"]) and str(row["position_id"]).strip():
+                pos_id = str(row["position_id"]).strip()
+
+            if action == up_action:
+                new_shares = shares + o_shares
+                if new_shares > 0:
+                    purchase_price = ((shares * purchase_price) + (o_shares * o_price)) / new_shares
+                shares = new_shares
+                if not entry_reason and o_reason:
+                    entry_reason = o_reason
+            elif action == down_action:
+                shares = max(0.0, shares - o_shares)
+                if shares <= 0.0001:
+                    shares = 0.0
+                    purchase_price = 0.0
+                    entry_reason = ""
+                    pos_id = None
+
+        if shares > 0.0001:
+            save_portfolio(symbol, shares, purchase_price, entry_reason, position_type, position_id=pos_id)
+        else:
+            remove_from_portfolio(symbol, position_type)
+
+        try:
+            import notion_helper as nh
+            page_id = nh.get_active_position(symbol, position_type)
+            if page_id:
+                if shares > 0.0001:
+                    nh.update_position_properties(page_id, avg_price=purchase_price, shares=shares, status="진입중")
+                else:
+                    nh.close_position_journal(page_id, return_rate=0.0, return_val=0.0, feedback="주문 취소에 따른 포지션 자동 전량 롤백 해제")
+        except Exception as ne:
+            import traceback
+            traceback.print_exc()
+            print(f"재계산 중 노션 동기화 실패 (속성 또는 세션 오류): {ne}")
+
+        return True
+
     sh = get_sh()
     if not sh:
         return False
@@ -632,14 +1047,24 @@ def recalculate_position(symbol, position_type):
             else:
                 nh.close_position_journal(page_id, return_rate=0.0, return_val=0.0, feedback="주문 취소에 따른 포지션 자동 전량 롤백 해제")
     except Exception as ne:
-        import streamlit as st
-        st.warning(f"재계산 중 노션 동기화 실패 (속성 또는 세션 오류): {ne}")
+        import traceback
+        traceback.print_exc()
+        print(f"재계산 중 노션 동기화 실패 (속성 또는 세션 오류): {ne}")
 
     return True
 
 
 def remove_order_by_row(symbol, position_type, row_num):
     """order_history 시트에서 잘못 기입된 특정 행(row_num, 1-indexed)을 제거하고 포지션을 재연산합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        df = st.session_state.sandbox_data["order_history"]
+        idx = int(row_num) - 2 # 헤더가 1행이므로 index + 2
+        if 0 <= idx < len(df):
+            st.session_state.sandbox_data["order_history"] = df.drop(index=idx).reset_index(drop=True)
+        recalculate_position(symbol, position_type)
+        return True
+
     sh = get_sh()
     if not sh:
         return False
@@ -656,6 +1081,45 @@ def remove_order_by_row(symbol, position_type, row_num):
 
 def record_order(symbol, action_type, shares, price, reason="", position_type="LONG", position_id=None):
     """주문 원장(order_history) 시트에 체결 이력을 기록합니다. 이후 해당 포지션을 즉시 자동 재연산합니다."""
+    if not st.session_state.get("is_admin", False):
+        init_sandbox_data()
+        symbol = symbol.strip().upper()
+        action_type = action_type.strip().upper()
+        shares = float(shares)
+        price = float(price)
+        reason = reason.strip() if reason else ""
+        position_type = position_type.strip().upper()
+        trade_date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # position_id 처리
+        if not position_id:
+            portfolio_df = get_portfolio()
+            match_rows = portfolio_df[(portfolio_df["symbol"] == symbol) & (portfolio_df["position_type"] == position_type)]
+            if not match_rows.empty and "position_id" in match_rows.columns:
+                existing_pos_id = match_rows.iloc[0]["position_id"]
+                if pd.notna(existing_pos_id) and str(existing_pos_id).strip():
+                    position_id = str(existing_pos_id).strip()
+            
+            if not position_id:
+                position_id = f"pos_{symbol.lower()}_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+
+        df_ord = st.session_state.sandbox_data["order_history"]
+        new_row = pd.DataFrame([{
+            "symbol": symbol,
+            "action_type": action_type,
+            "shares": shares,
+            "price": price,
+            "reason": reason,
+            "position_type": position_type,
+            "trade_date": trade_date,
+            "position_id": position_id
+        }])
+        dfs = [d for d in [df_ord, new_row] if not d.empty]
+        st.session_state.sandbox_data["order_history"] = pd.concat(dfs).reset_index(drop=True)
+        
+        recalculate_position(symbol, position_type)
+        return True
+
     sh = get_sh()
     if not sh:
         return False
